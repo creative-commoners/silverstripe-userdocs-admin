@@ -1,0 +1,8 @@
+---
+Name: userdocs-config
+---
+SilverStripe\Core\Injector\Injector:
+  Psr\SimpleCache\CacheInterface.userdocsmanifest:
+    factory: SilverStripe\Core\Cache\CacheFactory
+    constructor:
+      namespace: 'userdocsmanifest'
