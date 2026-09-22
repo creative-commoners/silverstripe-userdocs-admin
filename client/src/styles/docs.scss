@@ -1,0 +1,16 @@
+// Hide heading permalink until the heading is hovered over
+.heading-permalink {
+  visibility: hidden;
+
+  h1:hover &,
+  h3:hover &,
+  h2:hover &,
+  h4:hover &,
+  h5:hover &,
+  h6:hover &
+  {
+    visibility: visible;
+  }
+}
+
+
