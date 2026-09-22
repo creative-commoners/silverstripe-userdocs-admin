@@ -1,0 +1,57 @@
+// Note: We can't just import all of bootstrap because that breaks the admin styling.
+// Instead we only import what's needed to grab the media breakpoint mixin.
+// We're using that to match exactly what's happening with the CMS site tree.
+@import "bootstrap/scss/functions";
+@import "bootstrap/scss/variables";
+@import "variables";
+@import "bootstrap/scss/maps";
+@import "bootstrap/scss/mixins/breakpoints";
+
+// Hide links tree when the window is too narrow
+// This mimics the CMS tree
+.UserDocsAdmin.has-panel {
+  .menu-button {
+    display: none;
+  }
+
+  .menu-button__icon:before {
+    vertical-align: middle;
+  }
+
+  @include media-breakpoint-down(lg) {
+    .cms-content-tools { // @TODO actually only hide the tree stuff, and make the flex box parent aligned vertically so the breadcrumb part stretches the full widthk
+      display: none;
+    }
+
+    .menu-button {
+      display: flex;
+    }
+  }
+}
+
+
+
+.userdocs-tree {
+  // Note li is necessary to increase specificity and override styles from admin
+  li.Root {
+    border-bottom: 1px solid $border-color-dark;
+    padding-bottom: 1.25rem;
+
+    &:not(:first-child) {
+      padding-top: 1.25rem;
+    }
+
+    // Note strong is necessary to increase specificity and override styles from admin
+    strong.no-link {
+      padding-left: 6px;
+    }
+  }
+
+  // Ensures the child lists all share the same margin.
+  // The equivalent style in admin is too specific and fails to catch
+  // the first child under a root in the docs tree.
+  li.jstree-open > ul.jstree-child-list {
+    margin-left: 2px;
+    margin-right: 0;
+  }
+}
