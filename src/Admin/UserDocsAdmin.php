@@ -29,6 +29,7 @@ class UserDocsAdmin extends LeftAndMain
 
     private static array $documentation_roots = [
         'silverstripe/userdocs-admin:docs/userhelp' => true, // Note that the locale (en) will be the first subfolder
+        'vendor/silverstripe/developer-docs/test'
     ];
 
     private static array $allowed_actions = [
@@ -112,6 +113,7 @@ class UserDocsAdmin extends LeftAndMain
     public function getTreeFor()
     {
         $docData = UserDocsManifest::singleton()->getLocalisedState();
+        var_dump(UserDocsManifest::singleton()->getTreeData());
         // @TODO build a tree from the above.
         //       isIndex=true on a root means the root is a link, otherwise the root is NOT a link.
         //       Each segment of the slug should be another branch in the tree.
@@ -123,7 +125,23 @@ class UserDocsAdmin extends LeftAndMain
          * 3. Everything else
          */
 
-        // $
+        /*
+
+            So, there are a few things here.
+            1. We have flat data right now.
+            2. The root of each tree MAY NOT have a file associated with it and therefore may not directly appear in the tree.
+            3. We're not validating that each step in the tree has an index
+
+            What we need to do:
+            1. Have a list of roots (which can be derived by the first dir in any given relative file path)
+            2. Throw exceptions if a branch has no associated file (e.g. a/b/c.md, b must have either an a/b.md or a/b/index.md)
+            3. Throw exceptions if a folder and file clash (e.g. a/b.md and a/b/index.md both exist)
+            4. Note for both of the above that if the titles don't match it's not a collision
+            5. Build the trees from the roots up, doing a search through the data for parent slugs matching the current slug to get children.
+                Note that this should also be part of the manifest cache!!
+                Tree data only needs to retain slug and title (and children). Slug can then be used to get the rest of the data from the main manifest.
+
+        */
 
         return $this->renderWith(
             [static::class . '_SubTree'],
