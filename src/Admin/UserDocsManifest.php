@@ -250,11 +250,6 @@ class UserDocsManifest implements Flushable
         */
     }
 
-    public function getTreeData(): array
-    {
-        return $this->treeData;
-    }
-
     /**
      * Load current state into an array of data.
      */
@@ -274,6 +269,13 @@ class UserDocsManifest implements Flushable
         $locale = i18n::get_locale();
         // @TODO handle this better, e.g. fall back to en for en_US, etc.
         return $this->docData[$locale] ?? $this->docData[i18n::config()->uninherited('default_locale')] ?? $this->docData['en'];
+    }
+
+    public function getLocalisedTreeData(): array
+    {
+        $locale = i18n::get_locale();
+        // @TODO handle this better, e.g. fall back to en for en_US, etc.
+        return $this->treeData[$locale] ?? $this->treeData[i18n::config()->uninherited('default_locale')] ?? $this->treeData['en'];
     }
 
     /**
@@ -309,26 +311,51 @@ class UserDocsManifest implements Flushable
                     if ($slugToCheck === '.') continue; // @TODO temporary hack
                     // Roots need to be captured specifically
                     if (!str_contains($slugToCheck, '/') && $slug === $slugToCheck) {
-                        $this->treeData[$locale][$slugToCheck]['slug'] = $slug;
+                        $this->treeData[$locale][$slugToCheck]['slug'] = $slug; // @TODO not all roots wil have a slug!!
                         $this->treeData[$locale][$slugToCheck]['title'] = $docData['title'];
                     }
                     // Capture children
                     if (str_contains($slug, '/') && $docData['parentSlug'] === $slugToCheck) {
-                        $slugPart = explode('/', $slug)[1];
-                        $this->treeData[$locale][$slugToCheck]['children'][$slugPart] = [
+                        $slugParts = explode('/', $slug);
+                        $this->storeTreeData($locale, $slugParts, [
                             'slug' => $slug,
                             'title' => $docData['title'],
-                        ];
+                        ]);
+                        // $this->treeData[$locale][$slugToCheck]['children'][array_pop($slugParts)] =
                         $toCheck[$locale][] = $slug; // @TODO or maybe we add it whether it's a child or not? We might get a state here where there's a doc with no parent maybe idk
                     }
-                    // @TODO The above works for ONE level, but then dumps subsequent levels at the root too.
-                    // @TODO what we need now is to convert this from breadth-first to depth-first so we can keep track of the path we're taking and add items to the tree in the appropriate branch/leaf.
-                    //       LOOK AT https://github.com/silverstripe/doc.silverstripe.org/blob/2a8072f8dc2a1efea1a5e1707c4954d6c338a82c/src/lib/nav/build-nav-tree.ts#L58
                 }
             }
         }
 
         return true;
+    }
+
+    private function storeTreeData(string $locale, array $slugParts, array $data): void
+    {
+        $current = &$this->treeData[$locale];
+        $lastIndex = count($slugParts) - 1;
+
+        foreach ($slugParts as $index => $slugPart) {
+            // Ensure the current slug key exists as an array
+            if (!isset($current[$slugPart]) || !is_array($current[$slugPart])) {
+                $current[$slugPart] = [];
+            }
+
+            // If this is the final slug, write the value
+            if ($index === $lastIndex) {
+                $current[$slugPart] = $data;
+                return;
+            }
+
+            // Ensure the 'children' key exists before navigating deeper
+            if (!isset($current[$slugPart]['children']) || !is_array($current[$slugPart]['children'])) {
+                $current[$slugPart]['children'] = [];
+            }
+
+            // Move the reference pointer down into 'children'
+            $current = &$current[$slugPart]['children'];
+        }
     }
 
     /**

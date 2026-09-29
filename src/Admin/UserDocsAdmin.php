@@ -2,7 +2,12 @@
 
 namespace SilverStripe\UserDocs\Admin;
 
+use League\CommonMark\Environment\Environment;
+use League\CommonMark\Extension\CommonMark\CommonMarkCoreExtension;
+use League\CommonMark\Extension\GithubFlavoredMarkdownExtension;
+use League\CommonMark\MarkdownConverter;
 use Override;
+use PomoDocs\CommonMark\Alert\AlertExtension;
 use SilverStripe\Admin\LeftAndMain;
 use SilverStripe\Control\Controller;
 use SilverStripe\Control\HTTPRequest;
@@ -10,6 +15,7 @@ use SilverStripe\Control\HTTPResponse;
 use SilverStripe\Core\Config\Config;
 use SilverStripe\Core\Manifest\ModuleResourceLoader;
 use SilverStripe\ORM\DataObject;
+use SilverStripe\ORM\FieldType\DBField;
 use SilverStripe\ORM\Hierarchy\MarkedSet;
 use SilverStripe\Security\InheritedPermissions;
 use SilverStripe\Security\PermissionCheckable;
@@ -34,12 +40,14 @@ class UserDocsAdmin extends LeftAndMain
 
     private static array $allowed_actions = [
         'treeview', // @TODO we proooobably want to rename this, I suspect we'll only have the one view.
+        'docs',
     ];
 
     private static array $url_handlers = [
         'EditForm/$ID' => 'EditForm', // irrelevant?
         'GET SearchForm' => 'getSearchForm',
         'treeview/$ID' => 'treeview',
+        'docs/$*'
     ];
 
     #[Override]
@@ -73,6 +81,52 @@ class UserDocsAdmin extends LeftAndMain
             $this->setCurrentRecordID($id);
         }
         return $this->renderWith($this->getTemplatesWithSuffix('_TreeView'));
+    }
+
+    public function docs(HTTPRequest $request): HTTPResponse
+    {
+        // @TODO OKAY!
+        //       NOW I need this to render out the full page,
+        //       and have clicking the link in the tree do a PJAX request to just get the relevant bit (MAYBE, though CMS tree doesn't)
+        //       Basically, look at how CMSMain deals with the two panels and make it work here.
+
+
+        // NOTE!! We're completely ignoring the response negotiator and pjax stuff for now.
+        // I just want something that WORKS first.
+
+        // ..... maybe it SHOULD be "show"? Maybe it HAS to be "show"? I need this to render both panels.
+
+        // Get the slug and tell the request we've used up all parts of the URL
+        // If we don't do this, the Director assumes there's still more actions
+        // to be done and will end up returning an error response.
+        $slug = $request->remaining();
+        $request->shift(substr_count($slug, '/') + 1);
+
+        $data = UserDocsManifest::singleton()->getLocalisedState();
+        if (!array_key_exists($slug, $data)) {
+            $this->httpError(404);
+        }
+
+
+        $environment = new Environment([
+            'alert' => [
+                'icons' => [
+                    'active' => true,
+                ],
+            ],
+        ]);
+        $environment->addExtension(new CommonMarkCoreExtension());
+        $environment->addExtension(new GithubFlavoredMarkdownExtension());
+        $environment->addExtension(new AlertExtension()); // @TODO see https://github.com/pomodocs/commonmark-alert#configuration to make text localised
+        // @TODO make markdown environment injectable with extensions definable in yaml
+        // @TODO see https://commonmark.thephpleague.com/2.x/extensions/overview/ and decide what additional extensions should be applied
+        // @TODO do we want https://commonmark.thephpleague.com/2.x/extensions/table-of-contents/?
+        $converter = new MarkdownConverter($environment);
+        // @TODO validate the file actually exists
+        $markdown = $converter->convert(file_get_contents($data[$slug]['filePath']));
+        $this->response->setBody($markdown->getContent());
+        // @TODO we want to add some CSS to this, which we also want to allow devs to add to.
+        return $this->response;
     }
 
     public function LinkWithSearch($link) // @TODO
@@ -113,83 +167,53 @@ class UserDocsAdmin extends LeftAndMain
     public function getTreeFor()
     {
         $docData = UserDocsManifest::singleton()->getLocalisedState();
-        var_dump(UserDocsManifest::singleton()->getTreeData());
+        $treeData = UserDocsManifest::singleton()->getLocalisedTreeData();
         // @TODO build a tree from the above.
-        //       isIndex=true on a root means the root is a link, otherwise the root is NOT a link.
-        //       Each segment of the slug should be another branch in the tree.
-        //
-        /**
-         * Next steps:
-         * 1. Figure out how you want to structure the data, and rework the below and the template to behave the way you want them to
-         * 2. Build a documentation manifest and pull the menu through dynamically
-         * 3. Everything else
-         */
 
         /*
 
             So, there are a few things here.
-            1. We have flat data right now.
             2. The root of each tree MAY NOT have a file associated with it and therefore may not directly appear in the tree.
             3. We're not validating that each step in the tree has an index
 
-            What we need to do:
-            1. Have a list of roots (which can be derived by the first dir in any given relative file path)
+            What we still need to do:
             2. Throw exceptions if a branch has no associated file (e.g. a/b/c.md, b must have either an a/b.md or a/b/index.md)
             3. Throw exceptions if a folder and file clash (e.g. a/b.md and a/b/index.md both exist)
             4. Note for both of the above that if the titles don't match it's not a collision
-            5. Build the trees from the roots up, doing a search through the data for parent slugs matching the current slug to get children.
-                Note that this should also be part of the manifest cache!!
-                Tree data only needs to retain slug and title (and children). Slug can then be used to get the rest of the data from the main manifest.
+            5. Cache the tree data in the manifest
 
         */
 
-        return $this->renderWith(
-            [static::class . '_SubTree'],
-            [
-                'rootTitle' => 'Awawa',
-                'node' => ['IsInDB' => false],
-                'children' => [
-                    [
-                        'node' => [
-                            'IsInDB' => true,
-                            'ID' => 1,
-                            'ClassName' => 'Documentation',
-                        ],
-                        'TreeTitle' => 'Page One',
-                        'Title' => 'Page One for real',
-                        'SubTree' => $this->renderWith(
-                            [static::class . '_SubTree'],
-                            [
-                                'node' => [
-                                    'IsInDB' => true,
-                                    'ID' => 1,
-                                    'ClassName' => 'Documentation',
-                                ]
-                            ]
-                        ),
-                    ],
-                    [
-                        'node' => [
-                            'IsInDB' => true,
-                            'ID' => 2,
-                            'ClassName' => 'Documentation',
-                        ],
-                        'TreeTitle' => 'Page Two',
-                        'Title' => 'Page Two for real',
-                        'SubTree' => $this->renderWith(
-                            [static::class . '_SubTree'],
-                            [
-                                'node' => [
-                                    'IsInDB' => true,
-                                    'ID' => 2,
-                                    'ClassName' => 'Documentation',
-                                ]
-                            ]
-                        ),
-                    ],
+        $renderedTrees = [];
+        foreach ($treeData as $root) {
+            $renderedTrees[] = $this->renderWith(
+                [static::class . '_SubTree'],
+                [
+                    'controller' => $this,
+                    'node' => [...$root, 'id' => 0, 'isRoot' => true],
+                    'children' => $this->getRenderableChildren($root),
                 ],
-            ],
-        );
+            );
+        }
+        return DBField::create_field('HTMLFragment', implode($renderedTrees));
+        // @TODO make the above do the following:
+        // 1. recurse through children
+        // 2. use better templating (i.e. we can recurse through children FROM THE TEMPLATE)
+    }
+
+    private function getRenderableChildren(array $node)
+    {
+        if (empty($node['children'])) {
+            return null;
+        }
+        $renderable = [];
+        foreach ($node['children'] as $childData) {
+            $renderable[] = [
+                'node' => [...$childData],
+                'children' => $this->getRenderableChildren($childData),
+            ];
+        }
+        return $renderable;
     }
 
     /**

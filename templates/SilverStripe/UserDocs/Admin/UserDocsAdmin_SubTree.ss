@@ -1,31 +1,26 @@
-<% if not $node.IsInDB %><%-- Only render root node if it's the true root --%>
-    <ul><li id="record-0" data-id="0" class="Root nodelete"><span class="jstree-icon jstree-icon--arrow"><span class="font-icon-right-dir" aria-hidden="true"></span>&nbsp;</span>
-        <strong tabindex="-1">$rootTitle</strong>
-<% end_if %>
-<% if $limited %>
-    <ul><li class="readonly">
-        <span class="item">
-            <%t SilverStripe\\CMS\\Controllers\\CMSMain.TOO_MANY_RECORDS 'Too many records' %>
-            (<a href="{$listViewLink.ATT}" class="subtree-list-link" data-id="$node.ID" data-pjax-target="Content"><%t SilverStripe\\CMS\\Controllers\\CMSMain.SHOW_AS_LIST 'show as list' %></a>)
-        </span>
-    </li></ul>
-<% else_if $children %>
+<% if $node.isRoot %><ul><% end_if %>
+$controller.classname
+<li id="record-{$node.id}" data-id="{$node.id}" class="<% if $node.isRoot %>Root nodelete <% end_if %>$markingClasses">
+    <span class="jstree-icon jstree-icon--arrow"><span class="font-icon-right-dir" aria-hidden="true"></span>&nbsp;</span>
+    <% if $node.slug %>
+        <%-- IMPORTANT: There MUST NOT be any whitespace between the <a> element and the <ins> element below or it will break things in the JS --%>
+        <%-- @TODO Get rid of the drag handle in a way that doesnt add a default one. Visually hidden works but is a hack! --%>
+        <%-- @TODO Get rid of the right click menu --%>
+        <%-- @TODO Find out why indentation of the first below root doesnt work as expected --%>
+        <a href="{$controller.Link($controller.join_links('docs', $node.slug)).ATT}" title="{$Title.ATT}"<% if $node.isCurrentPage %> tabindex="0" aria-current="page"<% else_if not $node.hasCurrentPage && $node.isFirstPage %> tabindex="0"<% else %> tabindex="-1"<% end_if %>><ins class="jstree-icon jstree-icon--drag-handle visually"><span class="font-icon-drag-handle" aria-hidden="true"></span>&nbsp;</ins>
+            <span class="text">{$node.title}</span>
+        </a>
+    <% else %>
+        <strong tabindex="-1">$node.title</strong>
+    <% end_if %>
+
+<% if $children %>
     <ul>
         <% loop $children %>
-            <li id="record-{$node.ID}" data-id="{$node.ID}" data-recordtype="{$node.ClassName}" class="$markingClasses $extraClass"><span class="jstree-icon jstree-icon--arrow"><span class="font-icon-right-dir" aria-hidden="true"></span>&nbsp;</span>
-                <%-- IMPORTANT: There MUST NOT be any whitespace between the <a> element and the <ins> element below or it will break things in the JS --%>
-                <a href="{$Controller.LinkRecordEdit($node.ID).ATT}" title="{$Title.ATT}"<% if $isCurrentPage %> tabindex="0" aria-current="page"<% else_if not $hasCurrentPage && $isFirstPage %> tabindex="0"<% else %> tabindex="-1"<% end_if %>><ins class="jstree-icon jstree-icon--drag-handle"><span class="font-icon-drag-handle" aria-hidden="true"></span>&nbsp;</ins>
-                    <span class="text">{$TreeTitle}</span>
-                </a>
-                $SubTree
-            </li>
-
+            <% include SilverStripe/UserDocs/Admin/UserDocsAdmin_SubTree controller=$Up.controller %>
         <% end_loop %>
     </ul>
 <% end_if %>
-<% if not $node.IsInDB %>
-    </li></ul>
-<% end_if %>
 
-
-<%-- NOTE: Need to swap out LinkRecordEdit for a link to the docs page --%>
+</li>
+<% if $node.isRoot %></ul><% end_if %>
