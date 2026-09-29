@@ -4,7 +4,10 @@ namespace SilverStripe\UserDocs\Admin;
 
 use League\CommonMark\Environment\Environment;
 use League\CommonMark\Extension\CommonMark\CommonMarkCoreExtension;
+use League\CommonMark\Extension\FrontMatter\FrontMatterExtension;
 use League\CommonMark\Extension\GithubFlavoredMarkdownExtension;
+use League\CommonMark\Extension\HeadingPermalink\HeadingPermalinkExtension;
+use League\CommonMark\Extension\TableOfContents\TableOfContentsExtension;
 use League\CommonMark\MarkdownConverter;
 use Override;
 use PomoDocs\CommonMark\Alert\AlertExtension;
@@ -47,8 +50,10 @@ class UserDocsAdmin extends LeftAndMain
         'EditForm/$ID' => 'EditForm', // irrelevant?
         'GET SearchForm' => 'getSearchForm',
         'treeview/$ID' => 'treeview',
-        'docs/$*'
+        'docs/$*' => 'docs',
     ];
+
+    private ?string $currentDocSlug = null;
 
     #[Override]
     public function init()
@@ -85,29 +90,22 @@ class UserDocsAdmin extends LeftAndMain
 
     public function docs(HTTPRequest $request): HTTPResponse
     {
-        // @TODO OKAY!
-        //       NOW I need this to render out the full page,
-        //       and have clicking the link in the tree do a PJAX request to just get the relevant bit (MAYBE, though CMS tree doesn't)
-        //       Basically, look at how CMSMain deals with the two panels and make it work here.
-
-
-        // NOTE!! We're completely ignoring the response negotiator and pjax stuff for now.
-        // I just want something that WORKS first.
-
-        // ..... maybe it SHOULD be "show"? Maybe it HAS to be "show"? I need this to render both panels.
-
         // Get the slug and tell the request we've used up all parts of the URL
         // If we don't do this, the Director assumes there's still more actions
         // to be done and will end up returning an error response.
-        $slug = $request->remaining();
-        $request->shift(substr_count($slug, '/') + 1);
+        $this->currentDocSlug = $request->remaining();
+        $request->shift(substr_count($this->currentDocSlug, '/') + 1);
+        return $this->getResponseNegotiator()->respond($request);
+    }
 
+    public function getRenderedDocs()
+    {
         $data = UserDocsManifest::singleton()->getLocalisedState();
-        if (!array_key_exists($slug, $data)) {
+        if (!$this->currentDocSlug || !array_key_exists($this->currentDocSlug, $data)) {
             $this->httpError(404);
         }
 
-
+        $docData = $data[$this->currentDocSlug];
         $environment = new Environment([
             'alert' => [
                 'icons' => [
@@ -116,17 +114,31 @@ class UserDocsAdmin extends LeftAndMain
             ],
         ]);
         $environment->addExtension(new CommonMarkCoreExtension());
+        $environment->addExtension(new FrontMatterExtension());
+        $environment->addExtension(new HeadingPermalinkExtension());
+        $environment->addExtension(new TableOfContentsExtension());
         $environment->addExtension(new GithubFlavoredMarkdownExtension());
         $environment->addExtension(new AlertExtension()); // @TODO see https://github.com/pomodocs/commonmark-alert#configuration to make text localised
+        $environment->addExtension(new BaseUrlMarkdownExtension($this->Link('docs'), $docData));
         // @TODO make markdown environment injectable with extensions definable in yaml
         // @TODO see https://commonmark.thephpleague.com/2.x/extensions/overview/ and decide what additional extensions should be applied
         // @TODO do we want https://commonmark.thephpleague.com/2.x/extensions/table-of-contents/?
         $converter = new MarkdownConverter($environment);
         // @TODO validate the file actually exists
-        $markdown = $converter->convert(file_get_contents($data[$slug]['filePath']));
-        $this->response->setBody($markdown->getContent());
+        $markdown = $converter->convert(file_get_contents($docData['filePath']));
         // @TODO we want to add some CSS to this, which we also want to allow devs to add to.
-        return $this->response;
+        //       One CSS change we immediately need is on the `pre` element - overflow:show;
+        // @TODO we need to hide tree on narrow screen like CMSMain does
+        // @TODO update tab title? add breadcrumbs, make images render (vendor-expose??), fix special headers
+        // @TODO add "on this page" text above table of contents
+        // @TODO Remove icon before headings, put it after instead, use #, and make it only visible on hover
+        // @TODO find out how to do a post-render fix of header anchors in the event of base url in the head
+        return DBField::create_field('HTMLFragment', $markdown->getContent());
+    }
+
+    public function getCurrentDocSlug(): ?string
+    {
+        return $this->currentDocSlug;
     }
 
     public function LinkWithSearch($link) // @TODO

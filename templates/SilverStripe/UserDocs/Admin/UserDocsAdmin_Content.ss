@@ -1,8 +1,9 @@
+<% if $CurrentDocSlug %>
+<%-- Left and right panel together (i.e. we are viewing a docc page) --%>
 <div class="has-panel cms-content flexbox-area-grow fill-width fill-height $BaseCSSClasses" data-layout-type="border" data-pjax-fragment="Content">
-
-	$Tools
-
-    <%-- Tools has the left panel. This is the right panel. --%>
+	<%-- Tools includes the left panel --%>
+    $Tools
+    <%-- The rest of this is the right panel --%>
     <div class="fill-height flexbox-area-grow">
 		<div class="cms-content-header north">
 			<div class="cms-content-header-info flexbox-area-grow vertical-align-items">
@@ -11,8 +12,10 @@
 			</div>
 		</div>
 
-		<div class="flexbox-area-grow fill-height">
-			Actual docs go here
+		<div class="panel panel--padded panel--scrollable flexbox-area-grow fill-height">
+            <template shadowrootmode="open">
+			    $RenderedDocs
+            </template>
 		</div>
 	</div>
 
@@ -29,7 +32,13 @@
     Alternatively this could be an entirely new admin paradigm, but I don't really wanna do that.
 
     Or we could use the react-based preview panel, which might open up some avenues, but then we need a react tree as well.
-    I'd rather not go there.
+    Id rather not go there.
     --%>
-
 </div>
+
+<% else %>
+<%-- Left panel only --%>
+<div id="pages-controller-cms-content" class="flexbox-area-grow fill-height cms-content $BaseCSSClasses" data-layout-type="border" data-pjax-fragment="Content">
+    <% include SilverStripe\\UserDocs\\Admin\\UserDocsAdmin_LeftPanel %>
+</div>
+<% end_if %>

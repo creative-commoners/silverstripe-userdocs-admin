@@ -217,7 +217,7 @@ class UserDocsManifest implements Flushable
         $result = $frontMatterExtension->getFrontMatterParser()->parse(file_get_contents($filePath));
         $frontMatter = $result->getFrontMatter();
         $isIndex = $fileName === 'index.md';
-        $module = ModuleLoader::inst()->getManifest()->getModuleByPath($filePath)?->getName();
+        $module = ModuleLoader::inst()->getManifest()->getModuleByPath($filePath)->getName(); // @TODO protect against it not being a module, probably throw an exception
         $pathFromBase = ltrim(substr($filePath, strlen($basePath)), '/\\');
         $locale = strtok($pathFromBase, '/\\');
         $pathFromLocale = ltrim(substr($pathFromBase, strlen($locale)), '/\\');
