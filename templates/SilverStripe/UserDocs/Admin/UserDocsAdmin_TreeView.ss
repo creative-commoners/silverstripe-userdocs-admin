@@ -5,6 +5,7 @@
             <%t SilverStripe\CMS\Controllers\CMSMain.TreeFilteredClear 'Clear' %>
         </a>
 
+        <%-- @TODO: Remove all the attributes we dont need --%>
         <nav class="cms-tree <% if $TreeIsFiltered %>filtered-list<% end_if %>" aria-label="Documentation Navigation"
             data-url-tree="$LinkWithSearch($Link('getsubtree')).ATT"
             data-url-savetreenode="$Link('savetreenode').ATT"

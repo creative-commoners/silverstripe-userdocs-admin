@@ -14,6 +14,9 @@
 
 		<div class="panel panel--padded panel--scrollable flexbox-area-grow fill-height">
             <template shadowrootmode="open">
+                <% loop $CssFiles %>
+                    <link rel="stylesheet" href="$resourceURL($Me)">
+                <% end_loop %>
 			    $RenderedDocs
             </template>
 		</div>

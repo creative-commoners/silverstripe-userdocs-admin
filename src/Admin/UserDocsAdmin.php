@@ -2,6 +2,7 @@
 
 namespace SilverStripe\UserDocs\Admin;
 
+use League\CommonMark\ConverterInterface;
 use League\CommonMark\Environment\Environment;
 use League\CommonMark\Extension\CommonMark\CommonMarkCoreExtension;
 use League\CommonMark\Extension\FrontMatter\FrontMatterExtension;
@@ -16,6 +17,7 @@ use SilverStripe\Control\Controller;
 use SilverStripe\Control\HTTPRequest;
 use SilverStripe\Control\HTTPResponse;
 use SilverStripe\Core\Config\Config;
+use SilverStripe\Core\Injector\Injector;
 use SilverStripe\Core\Manifest\ModuleResourceLoader;
 use SilverStripe\ORM\DataObject;
 use SilverStripe\ORM\FieldType\DBField;
@@ -36,9 +38,20 @@ class UserDocsAdmin extends LeftAndMain
 
     private static int $menu_priority = -999;
 
+    /**
+     * Array of paths to user documentation
+     */
     private static array $documentation_roots = [
         'silverstripe/userdocs-admin:docs/userhelp' => true, // Note that the locale (en) will be the first subfolder
-        'vendor/silverstripe/developer-docs/test'
+        // 'vendor/silverstripe/developer-docs/test'
+    ];
+
+    /**
+     * Array of paths to CSS files that will be used in the shadow dom
+     * where rendered documentation sits.
+     */
+    private static array $css_files = [
+        'silverstripe/userdocs-admin:client/dist/styles/docs.css',
     ];
 
     private static array $allowed_actions = [
@@ -49,7 +62,7 @@ class UserDocsAdmin extends LeftAndMain
     private static array $url_handlers = [
         'EditForm/$ID' => 'EditForm', // irrelevant?
         'GET SearchForm' => 'getSearchForm',
-        'treeview/$ID' => 'treeview',
+        'treeview/$Slug' => 'treeview',
         'docs/$*' => 'docs',
     ];
 
@@ -63,15 +76,7 @@ class UserDocsAdmin extends LeftAndMain
         $manifest->init($this->getDocRoots());
     }
 
-    // @TODO:
-    // 1. Build manifest - IN PROGRESS (see @TODO comments)
-    // 2. Define a way to declare which tree root a doc page lives under
-    //    - Probably just root dirs under /en/? e.g. /en/blocks/index.md
-    //    - But then what about /en/index.md? Or /en/01_awawa.md? - DONE
-    // 3. Build link tree from manifest
-    // 4. Link to doc page that renders markdown (see https://commonmark.thephpleague.com/2.x/extensions/overview/)
-    // 5. Deal with AAAALLLLL the other stuff like when one module replaces a file from another module which do we declare it's from?
-    // 6. Figure out how the HECK search is gonna work.
+    // @TODO: Figure out how the HECK search is gonna work.
 
     /**
      * This method exclusively handles deferred ajax requests to render the
@@ -81,9 +86,9 @@ class UserDocsAdmin extends LeftAndMain
      */
     public function treeview()
     {
-        $id = $this->getRequest()->param('ID');
-        if ($id) {
-            $this->setCurrentRecordID($id);
+        $slug = rawurldecode($this->getRequest()->param('Slug') ?? '');
+        if ($slug) {
+            $this->setCurrentDocSlug($slug);
         }
         return $this->renderWith($this->getTemplatesWithSuffix('_TreeView'));
     }
@@ -106,34 +111,32 @@ class UserDocsAdmin extends LeftAndMain
         }
 
         $docData = $data[$this->currentDocSlug];
-        $environment = new Environment([
-            'alert' => [
-                'icons' => [
-                    'active' => true,
-                ],
-            ],
-        ]);
-        $environment->addExtension(new CommonMarkCoreExtension());
-        $environment->addExtension(new FrontMatterExtension());
-        $environment->addExtension(new HeadingPermalinkExtension());
-        $environment->addExtension(new TableOfContentsExtension());
-        $environment->addExtension(new GithubFlavoredMarkdownExtension());
-        $environment->addExtension(new AlertExtension()); // @TODO see https://github.com/pomodocs/commonmark-alert#configuration to make text localised
-        $environment->addExtension(new BaseUrlMarkdownExtension($this->Link('docs'), $docData));
-        // @TODO make markdown environment injectable with extensions definable in yaml
-        // @TODO see https://commonmark.thephpleague.com/2.x/extensions/overview/ and decide what additional extensions should be applied
-        // @TODO do we want https://commonmark.thephpleague.com/2.x/extensions/table-of-contents/?
-        $converter = new MarkdownConverter($environment);
+        /** @var MarkdownConverter $converter */
+        $converter = Injector::inst()->get(MarkdownConverter::class . '.userdocs');
+        $converter->getEnvironment()->addExtension(BaseUrlMarkdownExtension::create($this->Link('docs'), $docData));
+        // @TODO see https://github.com/pomodocs/commonmark-alert#configuration to make text localised for alert extension
+        // @TODO also check configuration for the other extensions and decide if to apply anything
+
         // @TODO validate the file actually exists
         $markdown = $converter->convert(file_get_contents($docData['filePath']));
-        // @TODO we want to add some CSS to this, which we also want to allow devs to add to.
-        //       One CSS change we immediately need is on the `pre` element - overflow:show;
+        // @TODO Add some sensible CSS that makes things look a little nicer (similar to base CMS CSS tbh)
         // @TODO we need to hide tree on narrow screen like CMSMain does
-        // @TODO update tab title? add breadcrumbs, make images render (vendor-expose??), fix special headers
+        // @TODO update tab title? add breadcrumbs (via md extension), make images render (vendor-expose??), fix special headers
         // @TODO add "on this page" text above table of contents
         // @TODO Remove icon before headings, put it after instead, use #, and make it only visible on hover
         // @TODO find out how to do a post-render fix of header anchors in the event of base url in the head
         return DBField::create_field('HTMLFragment', $markdown->getContent());
+    }
+
+    public function getCssFiles(): array
+    {
+        return static::config()->get('css_files');
+    }
+
+    public function setCurrentDocSlug(?string $slug): static
+    {
+        $this->currentDocSlug = $slug;
+        return $this;
     }
 
     public function getCurrentDocSlug(): ?string
@@ -221,7 +224,10 @@ class UserDocsAdmin extends LeftAndMain
         $renderable = [];
         foreach ($node['children'] as $childData) {
             $renderable[] = [
-                'node' => [...$childData],
+                'node' => [
+                    ...$childData,
+                    'isCurrentPage' => $childData['slug'] === $this->currentDocSlug // @TODO exxcept we don't have the current doc slug here!!
+                ],
                 'children' => $this->getRenderableChildren($childData),
             ];
         }

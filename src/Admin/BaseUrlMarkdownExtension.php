@@ -9,10 +9,14 @@ use League\CommonMark\Extension\CommonMark\Node\Inline\AbstractWebResource;
 use League\CommonMark\Extension\CommonMark\Node\Inline\Image;
 use League\CommonMark\Extension\CommonMark\Node\Inline\Link;
 use SilverStripe\Control\Controller;
+use SilverStripe\Core\Injector\Injectable;
 use SilverStripe\Core\Manifest\ModuleResourceLoader;
+use Symfony\Component\Filesystem\Path;
 
 class BaseUrlMarkdownExtension implements ExtensionInterface
 {
+    use Injectable;
+
     private string $baseUrl;
 
     private array $docData;
@@ -50,12 +54,29 @@ class BaseUrlMarkdownExtension implements ExtensionInterface
         }
 
         if ($node instanceof Image) {
-            preg_match('@' . preg_quote($this->docData['module'], '@') . '/(?<middle>.*?)/' . preg_quote($this->docData['locale'], '@') . '@', $this->docData['filePath'], $matches);
-            $relativePath = ModuleResourceLoader::resourceURL($this->docData['module'] . ':' . Controller::join_links([
+            preg_match(
+                '@'
+                    . preg_quote($this->docData['module'], '@')
+                    . '/(?<middle>.*?)/'
+                    . preg_quote($this->docData['locale'], '@')
+                    . '/(?<rest>.*)$@',
+                $this->docData['filePath'],
+                $matches
+            );
+            // Note that we _must_ use Symfony's Path class here to resolve path traversal,
+            // because otherwise Silverstripe's Path class will throw an exception while
+            // resolving the resource path.
+            // It's okay to deal with here because at this stage there's no chance of
+            // traversing beyond the project root.
+            $relativePath = Path::canonicalize(Controller::join_links([
                 $matches['middle'] ?? '',
                 $this->docData['locale'],
+                $matches['rest'],
+                $this->docData['isIndex'] ? '' : '..',
                 $url,
-            ])); // @TODO this fails with collapsing relative folders (e.g. some/path/../more) - see https://cms-userhelp.ddev.site/admin/user-docs/docs/developer_guides/model/versioning
+            ]));
+            // @TODO consider whether to fail gracefully for missing images
+            $relativePath = ModuleResourceLoader::resourceURL($this->docData['module'] . ':' . $relativePath);
             $node->setUrl($relativePath);
             return;
         }

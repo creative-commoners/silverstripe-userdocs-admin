@@ -93,12 +93,12 @@ class UserDocsManifest implements Flushable
                 }
             },
         ]);
-        $finder->find(BASE_PATH);
+        $finder->find(BASE_PATH); // @TODO maybe just use each valid path as a separate base and call find multiple times - alternatively we can use an accept_dir_callback
         $data = $this->mergeModuleData($data);
         $data = $this->sortDocData($data);
         $this->loadState($data); // @TODO rename this now that we have multiple "state" and I cbf doing it the way class manifest does
         if ($this->cache) {
-            // @TODO we need to store the root and tree data too
+            // @TODO we need to cache the root and tree data too
             $this->cache->set(static::CACHE_KEY, $data);
         }
     }
@@ -236,18 +236,6 @@ class UserDocsManifest implements Flushable
             'slug' => $slug,
             'parentSlug' => $parentSlug,
         ];
-        /*
-            @TODO We also will need to build a tree so something about sorting out the child hierarchy needs to happen too.
-                  Maybe we should be storing these as nested slug segments?
-                  e.g: general-features
-                               |------- Feature 1
-                               |------- Feature 2
-                                            |------ Sub-feature
-                       something-else
-                               |------- more stuff
-                   instead of as a flat general-features/feature1, general-features/feature2, general-features/feature2/sub-feature etc
-                That would make the module merge part harder, so maybe that happens before/after/during sorting??
-        */
     }
 
     /**
@@ -283,9 +271,8 @@ class UserDocsManifest implements Flushable
      *
      * @return bool True if cache was valid and successfully loaded
      */
-    protected function loadState(array $data): bool
+    protected function loadState(array $data): bool //@TODO "state" is probably a bad name
     {
-        //@TODO delete this if we don't get more complicated.
         // BUT if we do get more complicated check out the method by the same name in ClassManifest.
         $this->docData = $data;
         if (isEmpty($data)) {
