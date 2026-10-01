@@ -86,7 +86,7 @@ class UserDocsAdmin extends LeftAndMain
      */
     public function treeview()
     {
-        $slug = rawurldecode($this->getRequest()->param('Slug') ?? '');
+        $slug = rawurldecode($this->getCurrentDocSlugFromId($this->getRequest()->param('Slug')));
         if ($slug) {
             $this->setCurrentDocSlug($slug);
         }
@@ -114,7 +114,6 @@ class UserDocsAdmin extends LeftAndMain
         /** @var MarkdownConverter $converter */
         $converter = Injector::inst()->get(MarkdownConverter::class . '.userdocs');
         $converter->getEnvironment()->addExtension(BaseUrlMarkdownExtension::create($this->Link('docs'), $docData));
-        // @TODO see https://github.com/pomodocs/commonmark-alert#configuration to make text localised for alert extension
         // @TODO also check configuration for the other extensions and decide if to apply anything
 
         // @TODO validate the file actually exists
@@ -142,6 +141,29 @@ class UserDocsAdmin extends LeftAndMain
     public function getCurrentDocSlug(): ?string
     {
         return $this->currentDocSlug;
+    }
+
+    public function getCurrentDocSlugAsId(?string $slug = null): ?string
+    {
+        if ($slug === null) {
+            $slug = $this->currentDocSlug;
+        }
+        if ($slug === null) {
+            return $slug;
+        }
+        // The slug will be included in the URL using rawurlencode,
+        // but some Apache configurations won't allow an encoded
+        // slash, so we have to replace it with something else first.
+        return str_replace('/', '__SLASH__', $slug);
+    }
+
+    private function getCurrentDocSlugFromId(?string $id): string
+    {
+        if ($id === null) {
+            return '';
+        }
+        // Reverse the replacement from getCurrentDocSlugAsId
+        return str_replace('__SLASH__', '/', $id);
     }
 
     public function LinkWithSearch($link) // @TODO
@@ -183,7 +205,6 @@ class UserDocsAdmin extends LeftAndMain
     {
         $docData = UserDocsManifest::singleton()->getLocalisedState();
         $treeData = UserDocsManifest::singleton()->getLocalisedTreeData();
-        // @TODO build a tree from the above.
 
         /*
 
@@ -211,9 +232,6 @@ class UserDocsAdmin extends LeftAndMain
             );
         }
         return DBField::create_field('HTMLFragment', implode($renderedTrees));
-        // @TODO make the above do the following:
-        // 1. recurse through children
-        // 2. use better templating (i.e. we can recurse through children FROM THE TEMPLATE)
     }
 
     private function getRenderableChildren(array $node)
@@ -226,7 +244,7 @@ class UserDocsAdmin extends LeftAndMain
             $renderable[] = [
                 'node' => [
                     ...$childData,
-                    'isCurrentPage' => $childData['slug'] === $this->currentDocSlug // @TODO exxcept we don't have the current doc slug here!!
+                    'isCurrentPage' => $childData['slug'] === $this->currentDocSlug
                 ],
                 'children' => $this->getRenderableChildren($childData),
             ];

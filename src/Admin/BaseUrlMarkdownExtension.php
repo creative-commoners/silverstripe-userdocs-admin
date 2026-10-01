@@ -41,6 +41,8 @@ class BaseUrlMarkdownExtension implements ExtensionInterface
             if ($node instanceof Link || $node instanceof Image) {
                 $this->updateUrl($node);
             }
+            // @TODO find HeadingPermalink nodes andfix their anchors if possible
+            //       might need a custom renderer for those though, unfortunately.
         }
     }
 

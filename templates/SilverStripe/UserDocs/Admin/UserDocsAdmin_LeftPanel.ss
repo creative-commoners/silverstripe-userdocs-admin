@@ -29,4 +29,4 @@
     </div>
 </div>
 <%-- This is a bit of a hack to get the current doc slug passed in when calling treeview --%>
-<div class="cms-edit-form visually-hidden"><input type="hidden" value="$CurrentDocSlug.RAWURLATT.HTMLATT" name="ID"></div>
+<div class="cms-edit-form visually-hidden"><input type="hidden" value="$CurrentDocSlugAsId.RAWURLATT.HTMLATT" name="ID"></div>

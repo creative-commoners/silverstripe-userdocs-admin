@@ -7,21 +7,25 @@ SilverStripe\Core\Injector\Injector:
     constructor:
       namespace: 'userdocsmanifest'
   # Commonmark markdown converter injection config
-  League\CommonMark\Environment\EnvironmentBuilderInterface.userdocs:
-    class: 'League\CommonMark\Environment\Environment'
+  League\CommonMark\Environment\Environment.userdocs:
+    factory: 'SilverStripe\UserDocs\Admin\MarkdownEnvironmentFactory'
+    # class: 'League\CommonMark\Environment\Environment'
     constructor:
       config:
         alert:
           icons:
             active: true
-    calls:
-      CommonMarkCoreExtension: ['addExtension', ['%$League\CommonMark\Extension\CommonMark\CommonMarkCoreExtension']]
-      FrontMatterExtension: ['addExtension', ['%$League\CommonMark\Extension\FrontMatter\FrontMatterExtension']]
-      GithubFlavoredMarkdownExtension: ['addExtension', ['%$League\CommonMark\Extension\GithubFlavoredMarkdownExtension']]
-      HeadingPermalinkExtension: ['addExtension', ['%$League\CommonMark\Extension\HeadingPermalink\HeadingPermalinkExtension']]
-      TableOfContentsExtension: ['addExtension', ['%$League\CommonMark\Extension\TableOfContents\TableOfContentsExtension']]
-      AlertExtension: ['addExtension', ['%$PomoDocs\CommonMark\Alert\AlertExtension']]
+        heading_permalink:
+          insert: 'after'
+          symbol: '#'
+      extensions:
+        CommonMarkCoreExtension: '%$League\CommonMark\Extension\CommonMark\CommonMarkCoreExtension'
+        FrontMatterExtension: '%$League\CommonMark\Extension\FrontMatter\FrontMatterExtension'
+        GithubFlavoredMarkdownExtension: '%$League\CommonMark\Extension\GithubFlavoredMarkdownExtension'
+        HeadingPermalinkExtension: '%$League\CommonMark\Extension\HeadingPermalink\HeadingPermalinkExtension'
+        TableOfContentsExtension: '%$League\CommonMark\Extension\TableOfContents\TableOfContentsExtension'
+        AlertExtension: '%$PomoDocs\CommonMark\Alert\AlertExtension'
   League\CommonMark\MarkdownConverter.userdocs:
     class: 'League\CommonMark\MarkdownConverter'
     constructor:
-      environment: '%$League\CommonMark\Environment\EnvironmentBuilderInterface.userdocs'
+      environment: '%$League\CommonMark\Environment\Environment.userdocs'

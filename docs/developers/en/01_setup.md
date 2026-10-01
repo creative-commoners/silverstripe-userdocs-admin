@@ -25,12 +25,24 @@ SilverStripe\UserDocs\Admin\UserDocsAdmin:
     'my/module:docs/userhelp': false
 ```
 
-## Images
+## Images in docs
 
 To include images in your documentation, expose the folder(s) (see [exposing static resources](/developer_guides/templates/requirements/#exposing-static-resources)) and use relative paths the same way you normally would.
+
+## CSS to style your docs
+
+The rendered documentation is encapsulated in a shadow DOM, which allows us to include CSS that styles the docs without affecting the rest of the CMS.
+
+You can include your own stylesheet by adding the path for it to the [`UserDocsAdmin.css_files`](api:SilverStripe\UserDocs\Admin\UserDocsAdmin->css_files) configuration property.
+
+```yaml
+SilverStripe\UserDocs\Admin\UserDocsAdmin:
+  css_files:
+    - 'my/module:client/dist/docs.css'
+```
 
 ## Supported functionality
 
 Out of the box, all [Commommark](https://commonmark.org/) and [GitHub flavored](https://github.github.com/gfm/) markdown is supported. GitHub's [alert syntax](https://docs.github.com/en/get-started/writing-on-github/getting-started-with-writing-and-formatting-on-github/basic-writing-and-formatting-syntax#alerts) is also supported.
 
-TODO: Provide injector YAML for changing the extensions for markdown functionality support.
+@TODO: Provide injector YAML for changing the extensions for markdown functionality support.
