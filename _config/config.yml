@@ -9,7 +9,6 @@ SilverStripe\Core\Injector\Injector:
   # Commonmark markdown converter injection config
   League\CommonMark\Environment\Environment.userdocs:
     factory: 'SilverStripe\UserDocs\Admin\MarkdownEnvironmentFactory'
-    # class: 'League\CommonMark\Environment\Environment'
     constructor:
       config:
         alert:
@@ -18,6 +17,8 @@ SilverStripe\Core\Injector\Injector:
         heading_permalink:
           insert: 'after'
           symbol: '#'
+        table_of_contents:
+          min_heading_level: 2
       extensions:
         CommonMarkCoreExtension: '%$League\CommonMark\Extension\CommonMark\CommonMarkCoreExtension'
         FrontMatterExtension: '%$League\CommonMark\Extension\FrontMatter\FrontMatterExtension'

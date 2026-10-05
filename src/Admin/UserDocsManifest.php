@@ -31,8 +31,14 @@ class UserDocsManifest implements Flushable
     protected const CACHE_KEY = 'manifest';
 
     /**
+     * Array of properties to cache
      */
-    protected ?CacheInterface $cache = null;
+    protected array $cachedProperties = [
+        'docData',
+        'treeData',
+    ];
+
+    private ?CacheInterface $cache = null;
 
     /**
      * The full set of doc paths.
@@ -59,46 +65,47 @@ class UserDocsManifest implements Flushable
     public function init(array $validPaths, bool $includeTests = false): void
     {
         $this->cache = $this->buildCache($includeTests);
-
-        // Check if cache is safe to use
+        // If cache is safe to use, use it
         if ($this->cache
             && ($data = $this->cache->get(static::CACHE_KEY))
             && $this->loadState($data)
         ) {
             return;
         }
-
-        // Build
+        // Otherwise build from scratch
         $this->regenerate($validPaths, $includeTests);
     }
 
     /**
      * Completely regenerates the manifest file.
      */
-    public function regenerate(array $validPaths, bool $includeTests)
+    public function regenerate(array $validPaths, bool $includeTests): void
     {
         // Reset the manifest so stale info doesn't cause errors.
         $this->loadState([]);
-
-        $data = [];
-
+        // Get metadata about all user documentation
+        $docData = [];
         $finder = new ManifestFileFinder();
         $finder->setOptions([
             'name_regex' => '/.*\\.md$/',
             'ignore_tests' => !$includeTests,
-            'file_callback' => function ($fileName, $filePath) use ($includeTests, $validPaths, &$data) {
-                $basePath = $this->findBasePath($filePath, $validPaths); // @TODO see if we can make the finder ignore invalid paths in the first place
+            'file_callback' => function ($fileName, $filePath) use ($includeTests, $validPaths, &$docData) {
+                $basePath = $this->findBasePath($filePath, $validPaths);
                 if ($basePath) {
-                    $this->handleFile($data, $fileName, $filePath, $basePath, $includeTests);
+                    $this->handleFile($docData, $fileName, $filePath, $basePath, $includeTests);
                 }
             },
         ]);
-        $finder->find(BASE_PATH); // @TODO maybe just use each valid path as a separate base and call find multiple times - alternatively we can use an accept_dir_callback
-        $data = $this->mergeModuleData($data);
-        $data = $this->sortDocData($data);
-        $this->loadState($data); // @TODO rename this now that we have multiple "state" and I cbf doing it the way class manifest does
+        $finder->find(BASE_PATH);
+        $docData = $this->mergeModuleData($docData);
+        $docData = $this->sortDocData($docData);
+        $treeData = $this->collateTreeData($docData);
+        $data = [
+            'docData' => $docData,
+            'treeData' => $treeData,
+        ];
+        $this->loadState($data);
         if ($this->cache) {
-            // @TODO we need to cache the root and tree data too
             $this->cache->set(static::CACHE_KEY, $data);
         }
     }
@@ -160,20 +167,18 @@ class UserDocsManifest implements Flushable
                     if ($a['order'] !== $b['order']) {
                         return $a['order'] <=> $b['order'];
                     }
-
                     // Both are folders or both are files, fall through to directory/title comparison
                 }
 
                 // If one document is an index file, it comes first
-                    // Orders are the same - folders come before files
-                    // isIndex = true means it's a folder (index.md)
-                    // isIndex = false means it's a regular file
-                    if ($a['isIndex'] !== $b['isIndex']) {
-                        return $a['isIndex'] ? -1 : 1; // @TODO there's some conundrums around when to deal with index vs order...
-                    }
+                // Orders are the same - folders come before files
+                // isIndex = true means it's a folder (index.md)
+                // isIndex = false means it's a regular file
+                if ($a['isIndex'] !== $b['isIndex']) {
+                    return $a['isIndex'] ? -1 : 1;
+                }
 
                 // If files are in different directories use absolute paths to determine order
-                // @TODO this is probably a bad idea, see note about building the tree in handleFile()
                 $dirA = dirname($a['filePath']);
                 $dirB = dirname($b['filePath']);
                 if ($dirA !== $dirB) {
@@ -252,7 +257,7 @@ class UserDocsManifest implements Flushable
      * for the current locale, with fallbacks in the shortened locale and then in the default locale.
      * For example pt_BR will fallback to pt which will then fallback to en_US which falls back to en.
      */
-    public function getLocalisedState(): array
+    public function getLocalisedDocData(): array
     {
         $locale = i18n::get_locale();
         // @TODO handle this better, e.g. fall back to en for en_US, etc.
@@ -273,16 +278,28 @@ class UserDocsManifest implements Flushable
      */
     protected function loadState(array $data): bool //@TODO "state" is probably a bad name
     {
-        // BUT if we do get more complicated check out the method by the same name in ClassManifest.
-        $this->docData = $data;
+        $success = true;
         if (isEmpty($data)) {
-            return true;
+            return $success;
         }
+        foreach ($this->cachedProperties as $property) {
+            if (!isset($data[$property]) || !is_array($data[$property])) {
+                $success = false;
+                $value = [];
+            } else {
+                $value = $data[$property];
+            }
+            $this->$property = $value;
+        }
+        return $success;
+    }
 
+    private function collateTreeData(array $docData): array
+    {
         // Find tree roots
         $roots = [];
-        foreach ($data as $locale => $localeData) {
-            foreach ($localeData as $slug => $docData) {
+        foreach ($docData as $locale => $localeData) {
+            foreach ($localeData as $slug => $docDatum) {
                 $root = explode('/', $slug)[0];
                 if (!in_array($root, $roots[$locale] ?? [])) {
                     $roots[$locale][] = $root;
@@ -290,59 +307,53 @@ class UserDocsManifest implements Flushable
             }
         }
 
+        $treeData = [];
         $toCheck = $roots;
-        $this->treeData = [];
-        foreach ($data as $locale => $localeData) {
+        foreach ($docData as $locale => $localeData) {
             foreach (ArrayLib::iterateVolatile($toCheck[$locale]) as $slugToCheck) {
-                foreach ($localeData as $slug => $docData) {
+                foreach ($localeData as $slug => $docDatum) {
                     if ($slugToCheck === '.') continue; // @TODO temporary hack
                     // Roots need to be captured specifically
                     if (!str_contains($slugToCheck, '/') && $slug === $slugToCheck) {
-                        $this->treeData[$locale][$slugToCheck]['slug'] = $slug; // @TODO not all roots wil have a slug!!
-                        $this->treeData[$locale][$slugToCheck]['title'] = $docData['title'];
+                        $treeData[$locale][$slugToCheck]['slug'] = $slug; // @TODO not all roots wil have a slug!!
+                        $treeData[$locale][$slugToCheck]['title'] = $docDatum['title'];
                     }
                     // Capture children
-                    if (str_contains($slug, '/') && $docData['parentSlug'] === $slugToCheck) {
+                    if (str_contains($slug, '/') && $docDatum['parentSlug'] === $slugToCheck) {
                         $slugParts = explode('/', $slug);
-                        $this->storeTreeData($locale, $slugParts, [
-                            'slug' => $slug,
-                            'title' => $docData['title'],
-                        ]);
-                        // $this->treeData[$locale][$slugToCheck]['children'][array_pop($slugParts)] =
-                        $toCheck[$locale][] = $slug; // @TODO or maybe we add it whether it's a child or not? We might get a state here where there's a doc with no parent maybe idk
+                        $current = &$treeData[$locale];
+                        $lastIndex = count($slugParts) - 1;
+                        foreach ($slugParts as $index => $slugPart) {
+                            // Ensure the current slug key exists as an array
+                            if (!isset($current[$slugPart]) || !is_array($current[$slugPart])) {
+                                $current[$slugPart] = [];
+                            }
+
+                            // If this is the final slug, write the value
+                            if ($index === $lastIndex) {
+                                $current[$slugPart] = [
+                                    'slug' => $slug,
+                                    'title' => $docDatum['title'],
+                                ];
+                                break;
+                            }
+
+                            // Ensure the 'children' key exists before navigating deeper
+                            if (!isset($current[$slugPart]['children']) || !is_array($current[$slugPart]['children'])) {
+                                $current[$slugPart]['children'] = [];
+                            }
+
+                            // Move the reference pointer down into 'children'
+                            $current = &$current[$slugPart]['children'];
+                        }
+
+                        // Make sure we check for children of this page
+                        $toCheck[$locale][] = $slug;
                     }
                 }
             }
         }
-
-        return true;
-    }
-
-    private function storeTreeData(string $locale, array $slugParts, array $data): void
-    {
-        $current = &$this->treeData[$locale];
-        $lastIndex = count($slugParts) - 1;
-
-        foreach ($slugParts as $index => $slugPart) {
-            // Ensure the current slug key exists as an array
-            if (!isset($current[$slugPart]) || !is_array($current[$slugPart])) {
-                $current[$slugPart] = [];
-            }
-
-            // If this is the final slug, write the value
-            if ($index === $lastIndex) {
-                $current[$slugPart] = $data;
-                return;
-            }
-
-            // Ensure the 'children' key exists before navigating deeper
-            if (!isset($current[$slugPart]['children']) || !is_array($current[$slugPart]['children'])) {
-                $current[$slugPart]['children'] = [];
-            }
-
-            // Move the reference pointer down into 'children'
-            $current = &$current[$slugPart]['children'];
-        }
+        return $treeData;
     }
 
     /**

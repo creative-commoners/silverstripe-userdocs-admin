@@ -1,39 +1,20 @@
 <% if $TreeIsFiltered %>
     <div class="cms-tree-filtered cms-notice flexbox-area-grow">
-        <strong><%t SilverStripe\CMS\Controllers\CMSMain.TreeFiltered 'Showing search results.' %></strong>
+        <strong><%t SilverStripe\CMS\Controllers\CMSMain.TreeFiltered 'Showing search results.' %></strong><%-- @TODO proper localisation --%>
         <a href="javascript:void(0)" class="clear-filter">
             <%t SilverStripe\CMS\Controllers\CMSMain.TreeFilteredClear 'Clear' %>
         </a>
 
-        <%-- @TODO: Remove all the attributes we dont need --%>
-        <nav class="cms-tree <% if $TreeIsFiltered %>filtered-list<% end_if %>" aria-label="Documentation Navigation"
+        <nav class="cms-tree filtered-list no-context-menu" aria-label="Documentation Navigation"
             data-url-tree="$LinkWithSearch($Link('getsubtree')).ATT"
-            data-url-savetreenode="$Link('savetreenode').ATT"
-            data-url-updatetreenodes="$Link('updatetreenodes').ATT"
-            data-url-addpage="{$Link('AddForm/?action_doAdd=1&ParentID=%s&RecordType=%s&ParentModeField=child').ATT}"
-            data-url-editpage="$LinkRecordEdit('%s').ATT"
-            data-url-duplicate="{$Link('duplicate/%s').ATT}"
-            data-url-duplicatewithchildren="{$Link('duplicatewithchildren/%s').ATT}"
-            data-url-listview="{$Link('?view=list').ATT}"
-            data-hints="$TreeHints.ATT"
-            data-childfilter="$Link('childfilter').ATT"
             data-extra-params="SecurityID=$SecurityID.ATT">
             $TreeAsUL
         </nav>
     </div>
 <% else %>
-    <nav class="cms-tree flexbox-area-grow <% if $TreeIsFiltered %>filtered-list<% end_if %>" aria-label="Documentation Navigation"
+    <nav class="cms-tree flexbox-area-grow no-context-menu" aria-label="Documentation Navigation"
         data-url-tree="$LinkWithSearch($Link('getsubtree')).ATT"
-        data-url-savetreenode="$Link('savetreenode').ATT" <%-- not relevant --%>
-        data-url-updatetreenodes="$Link('updatetreenodes').ATT" <%-- not relevant --%>
-        data-url-addpage="{$Link('AddForm/?action_doAdd=1&ParentID=%s&RecordType=%s&ParentModeField=child').ATT}" <%-- not relevant --%>
-        data-url-editpage="$LinkRecordEdit('%s').ATT" <%-- not relevant --%>
-        data-url-duplicate="{$Link('duplicate/%s').ATT}" <%-- not relevant --%>
-        data-url-duplicatewithchildren="{$Link('duplicatewithchildren/%s').ATT}" <%-- not relevant --%>
-        data-url-listview="{$Link('?view=list').ATT}" <%-- not relevant? --%>
-        data-hints="$TreeHints.ATT" <%-- not relevant --%>
-        data-childfilter="$Link('childfilter').ATT" <%-- not relevant --%>
-        data-extra-params="SecurityID=$SecurityID.ATT"> <%-- not relevant? --%>
+        data-extra-params="SecurityID=$SecurityID.ATT">
         $TreeAsUL
     </nav>
 <% end_if %>

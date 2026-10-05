@@ -21,10 +21,13 @@ class BaseUrlMarkdownExtension implements ExtensionInterface
 
     private array $docData;
 
+    private string $missingImagePath;
+
     public function __construct(string $baseUrl, array $docData)
     {
         $this->baseUrl = $baseUrl;
         $this->docData = $docData;
+        $this->missingImagePath = ModuleResourceLoader::resourceURL('silverstripe/userdocs-admin:client/images/missing-image-placeholder.png');
     }
 
     public function register(EnvironmentBuilderInterface $environment): void
@@ -50,7 +53,7 @@ class BaseUrlMarkdownExtension implements ExtensionInterface
     {
         $url = $node->getUrl();
 
-        // Skip empty URLs or URLs with a protocol (e.g., http://, https://, //, mailto:, ftp:// etc)
+        // Skip empty URLs or URLs with a protocol (http://, https://, ftp://, //, mailto:)
         if (empty($url) || preg_match('/^(https?:|ftp:)?\/\/|mailto:/i', $url)) {
             return;
         }
@@ -77,9 +80,14 @@ class BaseUrlMarkdownExtension implements ExtensionInterface
                 $this->docData['isIndex'] ? '' : '..',
                 $url,
             ]));
-            // @TODO consider whether to fail gracefully for missing images
-            $relativePath = ModuleResourceLoader::resourceURL($this->docData['module'] . ':' . $relativePath);
-            $node->setUrl($relativePath);
+            // If the image is missing, use a placeholder. Otherwise, use the correct image.
+            $moduleResourcePath = $this->docData['module'] . ':' . $relativePath;
+            $imagePath = ModuleResourceLoader::resourcePath($moduleResourcePath);
+            if (!$imagePath || !file_exists(Path::join(BASE_PATH, $imagePath))) {
+                $node->setUrl($this->missingImagePath);
+            } else {
+                $node->setUrl(ModuleResourceLoader::resourceURL($moduleResourcePath));
+            }
             return;
         }
 

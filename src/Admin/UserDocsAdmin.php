@@ -105,7 +105,7 @@ class UserDocsAdmin extends LeftAndMain
 
     public function getRenderedDocs()
     {
-        $data = UserDocsManifest::singleton()->getLocalisedState();
+        $data = UserDocsManifest::singleton()->getLocalisedDocData();
         if (!$this->currentDocSlug || !array_key_exists($this->currentDocSlug, $data)) {
             $this->httpError(404);
         }
@@ -114,15 +114,12 @@ class UserDocsAdmin extends LeftAndMain
         /** @var MarkdownConverter $converter */
         $converter = Injector::inst()->get(MarkdownConverter::class . '.userdocs');
         $converter->getEnvironment()->addExtension(BaseUrlMarkdownExtension::create($this->Link('docs'), $docData));
-        // @TODO also check configuration for the other extensions and decide if to apply anything
 
-        // @TODO validate the file actually exists
+        // @TODO validate the file actually exists e.g. in the case of stale manifest cache
         $markdown = $converter->convert(file_get_contents($docData['filePath']));
         // @TODO Add some sensible CSS that makes things look a little nicer (similar to base CMS CSS tbh)
         // @TODO we need to hide tree on narrow screen like CMSMain does
-        // @TODO update tab title? add breadcrumbs (via md extension), make images render (vendor-expose??), fix special headers
-        // @TODO add "on this page" text above table of contents
-        // @TODO Remove icon before headings, put it after instead, use #, and make it only visible on hover
+        // @TODO update tab title? add breadcrumbs (via md extension), fix special headers
         // @TODO find out how to do a post-render fix of header anchors in the event of base url in the head
         return DBField::create_field('HTMLFragment', $markdown->getContent());
     }
@@ -154,7 +151,11 @@ class UserDocsAdmin extends LeftAndMain
         // The slug will be included in the URL using rawurlencode,
         // but some Apache configurations won't allow an encoded
         // slash, so we have to replace it with something else first.
-        return str_replace('/', '__SLASH__', $slug);
+        // We also have to replace any characters that will break
+        // jQuery's selector lookup when used inside an attribute
+        // selector.
+        // @TODO make a more complete list of characters and make it a const
+        return str_replace(['/', '.'], ['__SLASH__', '__DOT__'], $slug);
     }
 
     private function getCurrentDocSlugFromId(?string $id): string
@@ -163,7 +164,7 @@ class UserDocsAdmin extends LeftAndMain
             return '';
         }
         // Reverse the replacement from getCurrentDocSlugAsId
-        return str_replace('__SLASH__', '/', $id);
+        return str_replace(['__SLASH__', '__DOT__'], ['/', '.'], $id);
     }
 
     public function LinkWithSearch($link) // @TODO
@@ -203,10 +204,9 @@ class UserDocsAdmin extends LeftAndMain
      */
     public function getTreeFor()
     {
-        $docData = UserDocsManifest::singleton()->getLocalisedState();
         $treeData = UserDocsManifest::singleton()->getLocalisedTreeData();
 
-        /*
+        /*  @TODO
 
             So, there are a few things here.
             2. The root of each tree MAY NOT have a file associated with it and therefore may not directly appear in the tree.
@@ -216,7 +216,6 @@ class UserDocsAdmin extends LeftAndMain
             2. Throw exceptions if a branch has no associated file (e.g. a/b/c.md, b must have either an a/b.md or a/b/index.md)
             3. Throw exceptions if a folder and file clash (e.g. a/b.md and a/b/index.md both exist)
             4. Note for both of the above that if the titles don't match it's not a collision
-            5. Cache the tree data in the manifest
 
         */
 
