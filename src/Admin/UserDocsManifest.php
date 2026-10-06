@@ -6,6 +6,7 @@ use InvalidArgumentException;
 use Psr\SimpleCache\CacheInterface;
 use SilverStripe\Core\Manifest\ManifestFileFinder;
 use League\CommonMark\Extension\FrontMatter\FrontMatterExtension;
+use Locale;
 use SilverStripe\Core\ArrayLib;
 use SilverStripe\Core\Flushable;
 use SilverStripe\Core\Injector\Injectable;
@@ -14,8 +15,6 @@ use SilverStripe\Core\Manifest\Module;
 use SilverStripe\Core\Manifest\ModuleLoader;
 use SilverStripe\Core\Path;
 use SilverStripe\i18n\i18n;
-
-use function Embed\isEmpty;
 
 /**
  * A utility class which builds a manifest of where to find all user documentation and caches it.
@@ -252,23 +251,47 @@ class UserDocsManifest implements Flushable
     }
 
     /**
-     * Load current state into an array of data.
-     * Data will be returned specifically
-     * for the current locale, with fallbacks in the shortened locale and then in the default locale.
+     * Get all data about documentation for the current locale.
+     * Falls back to the shortened locale and then to the default locale.
      * For example pt_BR will fallback to pt which will then fallback to en_US which falls back to en.
      */
     public function getLocalisedDocData(): array
     {
-        $locale = i18n::get_locale();
-        // @TODO handle this better, e.g. fall back to en for en_US, etc.
-        return $this->docData[$locale] ?? $this->docData[i18n::config()->uninherited('default_locale')] ?? $this->docData['en'];
+        return $this->getLocalisedData($this->docData);
     }
 
+    /**
+     * Undocumented function
+     *
+     * @return array
+     */
     public function getLocalisedTreeData(): array
     {
+        return $this->getLocalisedData($this->treeData);
+    }
+
+    private function getLocalisedData(array $data): array
+    {
+        // @TODO This is kinda garbage because it relies on an all-or-nothing localisation.
+        //       We need instead to do some sort of locale merging so unlocalised docs are still displayed.
         $locale = i18n::get_locale();
-        // @TODO handle this better, e.g. fall back to en for en_US, etc.
-        return $this->treeData[$locale] ?? $this->treeData[i18n::config()->uninherited('default_locale')] ?? $this->treeData['en'];
+        if (!empty($data[$locale])) {
+            return $data[$locale];
+        }
+        $fallbackLocale = Locale::getPrimaryLanguage($locale);
+        if ($locale !== $fallbackLocale && !empty($data[$fallbackLocale])) {
+            return $data[$fallbackLocale];
+        }
+
+        $defaultLocale = i18n::config()->uninherited('default_locale');
+        if (!empty($data[$defaultLocale])) {
+            return $data[$defaultLocale];
+        }
+        $fallbackDefaultLocale = Locale::getPrimaryLanguage($defaultLocale);
+        if ($defaultLocale !== $fallbackDefaultLocale && !empty($data[$fallbackDefaultLocale])) {
+            return $data[$fallbackDefaultLocale];
+        }
+        return [];
     }
 
     /**
@@ -276,10 +299,10 @@ class UserDocsManifest implements Flushable
      *
      * @return bool True if cache was valid and successfully loaded
      */
-    protected function loadState(array $data): bool //@TODO "state" is probably a bad name
+    protected function loadState(array $data): bool
     {
         $success = true;
-        if (isEmpty($data)) {
+        if (empty($data)) {
             return $success;
         }
         foreach ($this->cachedProperties as $property) {

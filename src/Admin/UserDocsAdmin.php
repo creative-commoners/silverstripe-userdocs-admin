@@ -111,15 +111,17 @@ class UserDocsAdmin extends LeftAndMain
         }
 
         $docData = $data[$this->currentDocSlug];
+        $filePath = $docData['filePath'];
+        if (!file_exists($filePath)) {
+            $this->httpError(404);
+        }
         /** @var MarkdownConverter $converter */
         $converter = Injector::inst()->get(MarkdownConverter::class . '.userdocs');
         $converter->getEnvironment()->addExtension(BaseUrlMarkdownExtension::create($this->Link('docs'), $docData));
-
-        // @TODO validate the file actually exists e.g. in the case of stale manifest cache
-        $markdown = $converter->convert(file_get_contents($docData['filePath']));
+        $markdown = $converter->convert(file_get_contents($filePath));
         // @TODO Add some sensible CSS that makes things look a little nicer (similar to base CMS CSS tbh)
         // @TODO we need to hide tree on narrow screen like CMSMain does
-        // @TODO update tab title? add breadcrumbs (via md extension), fix special headers
+        // @TODO update tab title? add breadcrumbs (via md extension)
         // @TODO find out how to do a post-render fix of header anchors in the event of base url in the head
         return DBField::create_field('HTMLFragment', $markdown->getContent());
     }
@@ -221,6 +223,7 @@ class UserDocsAdmin extends LeftAndMain
 
         $renderedTrees = [];
         foreach ($treeData as $root) {
+            // @TODO if root index.md and has no content, don't add a link. That's just there for the frontmatter.
             $renderedTrees[] = $this->renderWith(
                 [static::class . '_SubTree'],
                 [

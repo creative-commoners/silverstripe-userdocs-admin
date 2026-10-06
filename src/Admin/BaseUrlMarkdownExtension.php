@@ -8,8 +8,10 @@ use League\CommonMark\Extension\ExtensionInterface;
 use League\CommonMark\Extension\CommonMark\Node\Inline\AbstractWebResource;
 use League\CommonMark\Extension\CommonMark\Node\Inline\Image;
 use League\CommonMark\Extension\CommonMark\Node\Inline\Link;
+use Psr\Log\LoggerInterface;
 use SilverStripe\Control\Controller;
 use SilverStripe\Core\Injector\Injectable;
+use SilverStripe\Core\Injector\Injector;
 use SilverStripe\Core\Manifest\ModuleResourceLoader;
 use Symfony\Component\Filesystem\Path;
 
@@ -85,6 +87,7 @@ class BaseUrlMarkdownExtension implements ExtensionInterface
             $imagePath = ModuleResourceLoader::resourcePath($moduleResourcePath);
             if (!$imagePath || !file_exists(Path::join(BASE_PATH, $imagePath))) {
                 $node->setUrl($this->missingImagePath);
+                Injector::inst()->get(LoggerInterface::class)->warning("Could not find image '$moduleResourcePath'");
             } else {
                 $node->setUrl(ModuleResourceLoader::resourceURL($moduleResourcePath));
             }

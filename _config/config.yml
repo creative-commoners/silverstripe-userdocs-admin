@@ -11,10 +11,16 @@ SilverStripe\Core\Injector\Injector:
     factory: 'SilverStripe\UserDocs\Admin\MarkdownEnvironmentFactory'
     constructor:
       config:
+        attributes:
+          allow:
+            - 'id'
         alert:
           icons:
             active: true
         heading_permalink:
+          apply_id_to_heading: true
+          id_prefix: ''
+          fragment_prefix: ''
           insert: 'after'
           symbol: '#'
         table_of_contents:
@@ -23,6 +29,7 @@ SilverStripe\Core\Injector\Injector:
         CommonMarkCoreExtension: '%$League\CommonMark\Extension\CommonMark\CommonMarkCoreExtension'
         FrontMatterExtension: '%$League\CommonMark\Extension\FrontMatter\FrontMatterExtension'
         GithubFlavoredMarkdownExtension: '%$League\CommonMark\Extension\GithubFlavoredMarkdownExtension'
+        AttributesExtension: '%$League\CommonMark\Extension\Attributes\AttributesExtension'
         HeadingPermalinkExtension: '%$League\CommonMark\Extension\HeadingPermalink\HeadingPermalinkExtension'
         TableOfContentsExtension: '%$League\CommonMark\Extension\TableOfContents\TableOfContentsExtension'
         AlertExtension: '%$PomoDocs\CommonMark\Alert\AlertExtension'
