@@ -3,6 +3,11 @@
 namespace SilverStripe\UserDocs\Admin;
 
 use League\CommonMark\Environment\Environment;
+use League\CommonMark\Event\DocumentParsedEvent;
+use League\CommonMark\Extension\CommonMark\Renderer\Block\ListBlockRenderer;
+use League\CommonMark\Extension\TableOfContents\Node\TableOfContents;
+use League\CommonMark\Extension\TableOfContents\TableOfContentsExtension;
+use League\CommonMark\Extension\TableOfContents\TableOfContentsRenderer;
 use PomoDocs\CommonMark\Alert\AlertExtension;
 use SilverStripe\Core\Injector\Factory;
 
@@ -25,13 +30,26 @@ class MarkdownEnvironmentFactory implements Factory
             }
         }
 
-        // @TODO https://commonmark.thephpleague.com/2.x/extensions/tables/ might be useful for making tables responsive
-        // @TODO Make a custom event listener to find the TableOfContents node and add the "on this page" text
-
         $environment = new Environment($config);
+        $hasTableOfContents = false;
         foreach ($extensions as $extension) {
             $environment->addExtension($extension);
+            if ($extension instanceof TableOfContentsExtension) {
+                $hasTableOfContents = true;
+            }
         }
+
+        if ($hasTableOfContents) {
+            $innerRenderer = null;
+            // We can't use $environment->getRenderersForClass() to get the existing table of contents renderer
+            // because that will initialise the environment which doesn't allow adding new renderers.
+            $innerRenderer = new TableOfContentsRenderer(new ListBlockRenderer());
+            $environment->addRenderer(TableOfContents::class, TableOfContentsWrapper::create($innerRenderer), 99999);
+            // Add a table of contents placeholder after the first h1 in any document, so that the TOC is
+            // rendered below the page title instead of above it.
+            $environment->addEventListener(DocumentParsedEvent::class, [TableOfContentsEventHandler::create(), 'onDocumentParsed']);
+        }
+
         return $environment;
     }
 }

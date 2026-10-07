@@ -221,7 +221,7 @@ class UserDocsManifest implements Flushable
         $result = $frontMatterExtension->getFrontMatterParser()->parse(file_get_contents($filePath));
         $frontMatter = $result->getFrontMatter();
         $isIndex = $fileName === 'index.md';
-        $module = ModuleLoader::inst()->getManifest()->getModuleByPath($filePath)->getName(); // @TODO protect against it not being a module, probably throw an exception
+        $module = ModuleLoader::inst()->getManifest()->getModuleByPath($filePath)->getName();
         $pathFromBase = ltrim(substr($filePath, strlen($basePath)), '/\\');
         $locale = strtok($pathFromBase, '/\\');
         $pathFromLocale = ltrim(substr($pathFromBase, strlen($locale)), '/\\');
@@ -420,7 +420,6 @@ class UserDocsManifest implements Flushable
         $segments = preg_split('@[\\/]@', $path);
         $parts = array_map(fn (string $segment): string => strtolower(preg_replace('/^\d+_/', '', $segment)), $segments);
         // Join parts into a single slug path
-        // @TODO for now this generates the full slug path, not just the slug segment for THIS file. We may want to change that.
         return Path::join($parts);
     }
 

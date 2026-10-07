@@ -1,6 +1,6 @@
 <% if $node.isRoot %><ul><% end_if %>
 $controller.classname
-<%-- TODO: Add the appropriate marking classes and note iscurrentpage etc.  --%>
+<%-- TODO: Add the appropriate marking classes and note iscurrentpage etc. --%>
 <li id="record-{$controller.CurrentDocSlugAsId($node.slug).RAWURLATT.HTMLATT}" data-id="{$controller.CurrentDocSlugAsId($node.slug).RAWURLATT.HTMLATT}" class="<% if $node.isRoot %>Root nodelete <% end_if %>$markingClasses">
     <span class="jstree-icon jstree-icon--arrow"><span class="font-icon-right-dir" aria-hidden="true"></span>&nbsp;</span>
     <% if $node.slug %>

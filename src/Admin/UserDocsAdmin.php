@@ -26,8 +26,6 @@ use SilverStripe\Security\InheritedPermissions;
 use SilverStripe\Security\PermissionCheckable;
 use Symfony\Component\Filesystem\Path;
 
-use function PHPUnit\Framework\isNumeric;
-
 class UserDocsAdmin extends LeftAndMain
 {
     private static string $url_segment = 'user-docs';
@@ -76,8 +74,6 @@ class UserDocsAdmin extends LeftAndMain
         $manifest->init($this->getDocRoots());
     }
 
-    // @TODO: Figure out how the HECK search is gonna work.
-
     /**
      * This method exclusively handles deferred ajax requests to render the
      * records tree deferred handler (no pjax-fragment)
@@ -119,9 +115,7 @@ class UserDocsAdmin extends LeftAndMain
         $converter = Injector::inst()->get(MarkdownConverter::class . '.userdocs');
         $converter->getEnvironment()->addExtension(BaseUrlMarkdownExtension::create($this->Link('docs'), $docData));
         $markdown = $converter->convert(file_get_contents($filePath));
-        // @TODO Add some sensible CSS that makes things look a little nicer (similar to base CMS CSS tbh)
         // @TODO we need to hide tree on narrow screen like CMSMain does
-        // @TODO update tab title? add breadcrumbs (via md extension)
         // @TODO find out how to do a post-render fix of header anchors in the event of base url in the head
         return DBField::create_field('HTMLFragment', $markdown->getContent());
     }
@@ -190,7 +184,7 @@ class UserDocsAdmin extends LeftAndMain
      */
     public function getsubtree(HTTPRequest $request): HTTPResponse
     {
-        $html = $this->getTreeFor(); // @TODO May need to put back the bit that takes an ID in case we're lazy loading children later
+        $html = $this->getTreeFor();
 
         // Trim off the outer tag
         $html = preg_replace('/^[\s\t\r\n]*<ul[^>]*>/', '', $html ?? '');
