@@ -40,7 +40,6 @@ class MarkdownEnvironmentFactory implements Factory
         }
 
         if ($hasTableOfContents) {
-            $innerRenderer = null;
             // We can't use $environment->getRenderersForClass() to get the existing table of contents renderer
             // because that will initialise the environment which doesn't allow adding new renderers.
             $innerRenderer = new TableOfContentsRenderer(new ListBlockRenderer());

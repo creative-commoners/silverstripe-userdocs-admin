@@ -2,12 +2,16 @@
 
 namespace SilverStripe\UserDocs\Admin;
 
+use League\CommonMark\Environment\Environment;
 use League\CommonMark\Environment\EnvironmentBuilderInterface;
 use League\CommonMark\Event\DocumentParsedEvent;
 use League\CommonMark\Extension\ExtensionInterface;
 use League\CommonMark\Extension\CommonMark\Node\Inline\AbstractWebResource;
 use League\CommonMark\Extension\CommonMark\Node\Inline\Image;
 use League\CommonMark\Extension\CommonMark\Node\Inline\Link;
+use League\CommonMark\Extension\HeadingPermalink\HeadingPermalink;
+use League\CommonMark\Extension\HeadingPermalink\HeadingPermalinkExtension;
+use League\CommonMark\Extension\HeadingPermalink\HeadingPermalinkRenderer;
 use Psr\Log\LoggerInterface;
 use SilverStripe\Control\Controller;
 use SilverStripe\Core\Injector\Injectable;
@@ -35,6 +39,20 @@ class BaseUrlMarkdownExtension implements ExtensionInterface
     public function register(EnvironmentBuilderInterface $environment): void
     {
         $environment->addEventListener(DocumentParsedEvent::class, [$this, 'onDocumentParsed']);
+        if (!($environment instanceof Environment)) {
+            return;
+        }
+        foreach ($environment->getExtensions() as $extension) {
+            if ($extension instanceof HeadingPermalinkExtension) {
+                $innerRenderer = new HeadingPermalinkRenderer();
+                $environment->addRenderer(
+                    HeadingPermalink::class,
+                    HeadingPermalinkWrapper::create($innerRenderer, Controller::join_links($this->baseUrl, $this->docData['slug'])),
+                    99999
+                );
+                break;
+            }
+        }
     }
 
     public function onDocumentParsed(DocumentParsedEvent $event): void

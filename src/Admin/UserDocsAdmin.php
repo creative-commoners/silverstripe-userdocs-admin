@@ -21,6 +21,7 @@ use SilverStripe\Core\Injector\Injector;
 use SilverStripe\Core\Manifest\ModuleResourceLoader;
 use SilverStripe\ORM\DataObject;
 use SilverStripe\ORM\FieldType\DBField;
+use SilverStripe\ORM\FieldType\DBHTMLText;
 use SilverStripe\ORM\Hierarchy\MarkedSet;
 use SilverStripe\Security\InheritedPermissions;
 use SilverStripe\Security\PermissionCheckable;
@@ -108,7 +109,7 @@ class UserDocsAdmin extends LeftAndMain
 
         $docData = $data[$this->currentDocSlug];
         $filePath = $docData['filePath'];
-        if (!file_exists($filePath)) {
+        if (!$docData['hasContent'] || !file_exists($filePath)) {
             $this->httpError(404);
         }
         /** @var MarkdownConverter $converter */
@@ -198,7 +199,7 @@ class UserDocsAdmin extends LeftAndMain
      *
      * @return string Nested unordered list with links to each record
      */
-    public function getTreeFor()
+    public function getTreeFor(): DBHTMLText|string
     {
         $treeData = UserDocsManifest::singleton()->getLocalisedTreeData();
 
@@ -215,22 +216,43 @@ class UserDocsAdmin extends LeftAndMain
 
         */
 
+        $isFirstPageAssigned = false;
         $renderedTrees = [];
         foreach ($treeData as $root) {
-            // @TODO if root index.md and has no content, don't add a link. That's just there for the frontmatter.
             $renderedTrees[] = $this->renderWith(
                 [static::class . '_SubTree'],
                 [
                     'controller' => $this,
-                    'node' => [...$root, 'id' => 0, 'isRoot' => true],
-                    'children' => $this->getRenderableChildren($root),
+                    'node' => $this->getNodeData($root, true, $isFirstPageAssigned),
+                    'children' => $this->getRenderableChildren($root, $isFirstPageAssigned),
                 ],
             );
         }
         return DBField::create_field('HTMLFragment', implode($renderedTrees));
     }
 
-    private function getRenderableChildren(array $node)
+    /**
+     * Get the jstree marking classes for this node.
+     * Derived from MarkedSet::markingClasses()
+     */
+    private function getMarkingClasses(array $node): string
+    {
+        $classes = [];
+        // Set jstree open state, or mark it as a leaf (closed) if there are no children
+        if (empty($node['children'])) {
+            // No children
+            $classes[] = "jstree-leaf closed";
+        } elseif (str_starts_with($this->currentDocSlug, $node['slug'] . '/')) {
+            // Open with children
+            $classes[] = "jstree-open";
+        } else {
+            // Closed with children
+            $classes[] = "jstree-closed closed";
+        }
+        return implode(' ', $classes);
+    }
+
+    private function getRenderableChildren(array $node, bool &$isFirstPageAssigned): ?array
     {
         if (empty($node['children'])) {
             return null;
@@ -238,20 +260,32 @@ class UserDocsAdmin extends LeftAndMain
         $renderable = [];
         foreach ($node['children'] as $childData) {
             $renderable[] = [
-                'node' => [
-                    ...$childData,
-                    'isCurrentPage' => $childData['slug'] === $this->currentDocSlug
-                ],
-                'children' => $this->getRenderableChildren($childData),
+                'node' => $this->getNodeData($childData, false, $isFirstPageAssigned),
+                'children' => $this->getRenderableChildren($childData, $isFirstPageAssigned),
             ];
         }
         return $renderable;
     }
 
+    private function getNodeData(array $node, bool $isRoot, bool &$isFirstPageAssigned): array
+    {
+        $isFirstPage = false;
+        if (!$isFirstPageAssigned && $node['hasContent']) {
+            $isFirstPageAssigned = true;
+            $isFirstPage = true;
+        }
+        return [
+            ...$node,
+            'isRoot' => $isRoot,
+            'isCurrentPage' => $node['slug'] === $this->currentDocSlug,
+            'isFirstPage' => $isFirstPage,
+        ];
+    }
+
     /**
      * Return the entire tree as a nested set of ULs
      */
-    public function TreeAsUL()
+    public function TreeAsUL(): DBHTMLText|string
     {
         $html = $this->getTreeFor();
         $this->extend('updateTreeAsUL', $html);

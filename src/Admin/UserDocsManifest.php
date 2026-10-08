@@ -220,6 +220,7 @@ class UserDocsManifest implements Flushable
         $frontMatterExtension = new FrontMatterExtension();
         $result = $frontMatterExtension->getFrontMatterParser()->parse(file_get_contents($filePath));
         $frontMatter = $result->getFrontMatter();
+        $hasContent = !empty(trim($result->getContent()));
         $isIndex = $fileName === 'index.md';
         $module = ModuleLoader::inst()->getManifest()->getModuleByPath($filePath)->getName();
         $pathFromBase = ltrim(substr($filePath, strlen($basePath)), '/\\');
@@ -233,6 +234,7 @@ class UserDocsManifest implements Flushable
             'frontMatter' => $frontMatter,
             'title' => $frontMatter['title'] ?? $this->filenameToTitle($fileName, $filePath),
             'isIndex' => $isIndex,
+            'hasContent' => $hasContent,
             'fileName' => $fileName,
             'filePath' => $filePath,
             'module' => $module,
@@ -282,7 +284,7 @@ class UserDocsManifest implements Flushable
         if ($locale !== $fallbackLocale && !empty($data[$fallbackLocale])) {
             return $data[$fallbackLocale];
         }
-
+        // Fall back to default locale
         $defaultLocale = i18n::config()->uninherited('default_locale');
         if (!empty($data[$defaultLocale])) {
             return $data[$defaultLocale];
@@ -290,6 +292,10 @@ class UserDocsManifest implements Flushable
         $fallbackDefaultLocale = Locale::getPrimaryLanguage($defaultLocale);
         if ($defaultLocale !== $fallbackDefaultLocale && !empty($data[$fallbackDefaultLocale])) {
             return $data[$fallbackDefaultLocale];
+        }
+        // Fall back to en if we didn't already check that
+        if ($fallbackLocale !== 'en' && $fallbackDefaultLocale !== 'en' && !empty($data['en'])) {
+            return $data['en'];
         }
         return [];
     }
@@ -338,8 +344,10 @@ class UserDocsManifest implements Flushable
                     if ($slugToCheck === '.') continue; // @TODO temporary hack
                     // Roots need to be captured specifically
                     if (!str_contains($slugToCheck, '/') && $slug === $slugToCheck) {
-                        $treeData[$locale][$slugToCheck]['slug'] = $slug; // @TODO not all roots wil have a slug!!
+                        $treeData[$locale][$slugToCheck]['slug'] = $slug;
                         $treeData[$locale][$slugToCheck]['title'] = $docDatum['title'];
+                        $treeData[$locale][$slugToCheck]['isIndex'] = $docDatum['isIndex'];
+                        $treeData[$locale][$slugToCheck]['hasContent'] = $docDatum['hasContent'];
                     }
                     // Capture children
                     if (str_contains($slug, '/') && $docDatum['parentSlug'] === $slugToCheck) {
@@ -357,6 +365,8 @@ class UserDocsManifest implements Flushable
                                 $current[$slugPart] = [
                                     'slug' => $slug,
                                     'title' => $docDatum['title'],
+                                    'isIndex' => $docDatum['isIndex'],
+                                    'hasContent' => $docDatum['hasContent'],
                                 ];
                                 break;
                             }

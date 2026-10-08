@@ -5,7 +5,7 @@
 
     <%-- left panel (collapsed) --%>
     <div class="cms-panel-content-collapsed">
-        <h3 class="cms-panel-header">Collapsed menu title here?</h3>
+        <h3 class="cms-panel-header"><%t SilverStripe\UserDocs\Admin\UserDocsAdmin.UserDocumentationNavigation 'User Documentation Navigation' %></h3>
     </div>
     <div class="toolbar toolbar--south cms-panel-toggle">
         <button
