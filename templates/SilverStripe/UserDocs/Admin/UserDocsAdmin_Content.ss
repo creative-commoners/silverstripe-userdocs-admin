@@ -5,7 +5,7 @@
     $Tools
     <%-- The rest of this is the right panel --%>
     <div class="fill-height flexbox-area-grow">
-		<div class="panel panel--padded panel--scrollable flexbox-area-grow fill-height">
+		<div class="panel panel--padded panel--scrollable flexbox-area-grow fill-height docs-shadow-root">
             <template shadowrootmode="open">
                 <% loop $CssFiles %>
                     <link rel="stylesheet" href="$resourceURL($Me)">

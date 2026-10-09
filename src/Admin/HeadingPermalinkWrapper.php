@@ -35,7 +35,6 @@ class HeadingPermalinkWrapper implements NodeRendererInterface, ConfigurationAwa
         $permalinkHtml = $this->innerRenderer->render($node, $childRenderer);
 
         if ($permalinkHtml instanceof HtmlElement) {
-            // @TODO check this against what happens on the frontend - for some reason this is a) adding to the history and b) not actually scrolling the page.
             // @TODO make the ToC update its anchors too
             // @TODO skip if no base_url in the DOM
             $href = $permalinkHtml->getAttribute('href');
