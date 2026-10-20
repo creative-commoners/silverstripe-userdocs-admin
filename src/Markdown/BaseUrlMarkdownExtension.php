@@ -6,6 +6,7 @@ use League\CommonMark\Environment\Environment;
 use League\CommonMark\Environment\EnvironmentBuilderInterface;
 use League\CommonMark\Event\DocumentParsedEvent;
 use League\CommonMark\Extension\ExtensionInterface;
+use League\CommonMark\Extension\CommonMark\Node\Block\HtmlBlock;
 use League\CommonMark\Extension\CommonMark\Node\Inline\AbstractWebResource;
 use League\CommonMark\Extension\CommonMark\Node\Inline\Image;
 use League\CommonMark\Extension\CommonMark\Node\Inline\Link;
@@ -16,6 +17,9 @@ use League\CommonMark\Extension\HeadingPermalink\HeadingPermalinkRenderer;
 use League\CommonMark\Extension\TableOfContents\Node\TableOfContents;
 use League\CommonMark\Extension\TableOfContents\TableOfContentsExtension;
 use League\CommonMark\Extension\TableOfContents\TableOfContentsRenderer;
+use League\CommonMark\Node\Node;
+use League\CommonMark\Node\RawMarkupContainerInterface;
+use League\CommonMark\Node\StringContainerInterface;
 use League\Config\ConfigurationAwareInterface;
 use League\Config\ConfigurationInterface;
 use Psr\Log\LoggerInterface;
@@ -40,21 +44,38 @@ class BaseUrlMarkdownExtension implements ExtensionInterface, ConfigurationAware
 
     private array $docData;
 
+    private array $extensionData;
+
     private string $missingImagePath;
 
     private ?ConfigurationInterface $config = null;
 
     /**
+     * Matches the HTML comment from getExtensionMarker()
+     */
+    private const EXTENSION_MARKER_PATTERN = '/<!-- UserDocsAdmin__userdocs-extension:(?<index>\S+) -->/';
+
+    /**
      * @param string $baseUrl The URL that doc slugs are relative to
      * @param array $docData Metadata for the doc from UserDocsManifest
+     * @param array $extensionData Metadata for docs whose content is appended to this doc
      */
-    public function __construct(string $baseUrl, array $docData)
+    public function __construct(string $baseUrl, array $docData, array $extensionData = [])
     {
         $this->baseUrl = $baseUrl;
         $this->docData = $docData;
+        $this->extensionData = $extensionData;
         $this->missingImagePath = ModuleResourceLoader::resourceURL(
             'silverstripe/userdocs-admin:client/images/missing-image-placeholder.png'
         );
+    }
+
+    /**
+     * Get the HTML comment to put in the markdown before the content of an extension doc.
+     */
+    public static function getExtensionMarker(string|int $index): string
+    {
+        return "<!-- UserDocsAdmin__userdocs-extension:$index -->";
     }
 
     public function register(EnvironmentBuilderInterface $environment): void
@@ -99,20 +120,80 @@ class BaseUrlMarkdownExtension implements ExtensionInterface, ConfigurationAware
 
     /**
      * Update the URLs of all links and images in the parsed document.
+     * Content after an extension marker is resolved relative to that extension's file.
      */
     public function onDocumentParsed(DocumentParsedEvent $event): void
     {
         $document = $event->getDocument();
+        $currentDocData = $this->docData;
+        $markers = [];
 
-        // Find all Link and Image nodes in the document
         foreach ($document->iterator() as $node) {
-            if ($node instanceof Link || $node instanceof Image) {
-                $this->updateUrl($node);
+            if ($node instanceof HtmlBlock) {
+                $extensionIndex = $this->getextensionIndexFromMarker($node);
+                if ($extensionIndex !== null) {
+                    if (array_key_exists($extensionIndex, $this->extensionData)) {
+                        $currentDocData = $this->extensionData[$extensionIndex];
+                    } else {
+                        Injector::inst()->get(LoggerInterface::class)->warning(
+                            "No extension doc data for marker '$extensionIndex', so the content after it"
+                            . ' uses the paths of the content before it.'
+                        );
+                    }
+                    $markers[] = $node;
+                    continue;
+                }
             }
+            if ($node instanceof Link || $node instanceof Image) {
+                $this->updateUrl($node, $currentDocData);
+                continue;
+            }
+            $this->warnIfMarkerIsInside($node);
+        }
+
+        // Markers are only needed to find where each extension starts, so don't render them
+        foreach ($markers as $marker) {
+            $marker->detach();
         }
     }
 
-    private function updateUrl(AbstractWebResource $node): void
+    /**
+     * Get the extension index if this node is only an extension marker
+     */
+    private function getextensionIndexFromMarker(HtmlBlock $node): ?string
+    {
+        if (!preg_match(BaseUrlMarkdownExtension::EXTENSION_MARKER_PATTERN, $node->getLiteral(), $matches)) {
+            return null;
+        }
+        if (trim($node->getLiteral()) !== $matches[0]) {
+            return null;
+        }
+        return $matches['index'];
+    }
+
+    /**
+     * Log a warning if an extension marker is part of other content.
+     * This happens when content before the marker has an unclosed code block or HTML block,
+     * so links and images in that extension are resolved relative to the wrong file.
+     */
+    private function warnIfMarkerIsInside(Node $node): void
+    {
+        if (!($node instanceof StringContainerInterface) && !($node instanceof RawMarkupContainerInterface)) {
+            return;
+        }
+        if (!preg_match_all(BaseUrlMarkdownExtension::EXTENSION_MARKER_PATTERN, $node->getLiteral(), $matches)) {
+            return;
+        }
+        foreach ($matches['index'] as $extensionIndex) {
+            $filePath = $this->extensionData[$extensionIndex]['filePath'] ?? $extensionIndex;
+            Injector::inst()->get(LoggerInterface::class)->warning(
+                "Could not find where the content from '$filePath' starts, so its links and images may not work."
+                . ' Check the content before it for an unclosed code block or HTML block.'
+            );
+        }
+    }
+
+    private function updateUrl(AbstractWebResource $node, array $docData): void
     {
         $url = $node->getUrl();
 
@@ -122,9 +203,9 @@ class BaseUrlMarkdownExtension implements ExtensionInterface, ConfigurationAware
         }
 
         if ($node instanceof Image) {
-            $this->updateImageUrl($node, $url);
+            $this->updateImageUrl($node, $url, $docData);
         } else {
-            $this->updateLinkUrl($node, $url);
+            $this->updateLinkUrl($node, $url, $docData);
         }
     }
 
@@ -132,19 +213,19 @@ class BaseUrlMarkdownExtension implements ExtensionInterface, ConfigurationAware
      * Set the image URL to the public URL of the module resource it refers to.
      * Uses the missing image placeholder and logs a warning if the image can't be shown.
      */
-    private function updateImageUrl(Image $node, string $url): void
+    private function updateImageUrl(Image $node, string $url, array $docData): void
     {
         $logger = Injector::inst()->get(LoggerInterface::class);
         // Locales are a single folder, so the result is the same for all locales
-        $pathInModule = $this->getPathInModule($this->docData['locale'], $url);
+        $pathInModule = $this->getPathInModule($docData, $docData['locale'], $url);
         if ($pathInModule === '..' || str_starts_with($pathInModule, '../')) {
             $node->setUrl($this->missingImagePath);
             $docPath = Path::join(
-                $this->docData['rootPathInModule'],
-                $this->docData['locale'],
-                $this->docData['pathFromLocale']
+                $docData['rootPathInModule'],
+                $docData['locale'],
+                $docData['pathFromLocale']
             );
-            $logger->warning("Image '$url' in '{$this->docData['module']}:$docPath' is outside the module");
+            $logger->warning("Image '$url' in '{$docData['module']}:$docPath' is outside the module");
             return;
         }
         $missingResourcePath = null;
@@ -152,7 +233,7 @@ class BaseUrlMarkdownExtension implements ExtensionInterface, ConfigurationAware
         $resourcesPath = Path::join(Director::publicFolder(), RESOURCES_DIR);
         // Make sure localised docs can use images from fallback locales
         foreach (UserDocsManifest::getLocalePriority() as $locale) {
-            $moduleResourcePath = $this->getModuleResourcePath($locale, $url);
+            $moduleResourcePath = $this->getModuleResourcePath($docData, $locale, $url);
             $resource = ModuleResourceLoader::singleton()->resolveResource($moduleResourcePath);
             if ($resource instanceof ModuleResource && $resource->exists()) {
                 // The browser can only load images which are exposed in the public folder
@@ -163,7 +244,7 @@ class BaseUrlMarkdownExtension implements ExtensionInterface, ConfigurationAware
                 }
                 $unexposedResourcePath ??= $moduleResourcePath;
             }
-            if ($locale === $this->docData['locale']) {
+            if ($locale === $docData['locale']) {
                 $missingResourcePath = $moduleResourcePath;
             }
         }
@@ -173,7 +254,7 @@ class BaseUrlMarkdownExtension implements ExtensionInterface, ConfigurationAware
             return;
         }
         if (!$missingResourcePath) {
-            $missingResourcePath = $this->getModuleResourcePath($this->docData['locale'], $url);
+            $missingResourcePath = $this->getModuleResourcePath($docData, $docData['locale'], $url);
         }
         $logger->warning("Could not find image '$missingResourcePath'");
     }
@@ -181,18 +262,18 @@ class BaseUrlMarkdownExtension implements ExtensionInterface, ConfigurationAware
     /**
      * Make the link URL relative to the base URL of the documentation.
      */
-    private function updateLinkUrl(AbstractWebResource $node, string $url): void
+    private function updateLinkUrl(AbstractWebResource $node, string $url, array $docData): void
     {
         $url = $this->addFragmentPrefix($url);
         $urlParts = [$this->baseUrl];
         if (str_starts_with($url, '#')) {
-            $urlParts[] = UserDocsManifest::encodeSlug($this->docData['slug']);
+            $urlParts[] = UserDocsManifest::encodeSlug($docData['slug']);
             $urlParts[] = $url;
         } elseif (str_starts_with($url, '/')) {
             $urlParts[] = $url;
         } else {
             // Resolve the link against the doc's folder so the URL holds the real slug, with no ".." in it
-            $dir = $this->docData['isIndex'] ? $this->docData['slug'] : dirname($this->docData['slug']);
+            $dir = $docData['isIndex'] ? $docData['slug'] : dirname($docData['slug']);
             // Keep any query string or anchor out of the path so it can't change how the path resolves
             $pathLength = strcspn($url, '?#');
             $urlParts[] = Path::join(UserDocsManifest::encodeSlug($dir), substr($url, 0, $pathLength))
@@ -232,9 +313,9 @@ class BaseUrlMarkdownExtension implements ExtensionInterface, ConfigurationAware
      * Get the module resource path for a URL relative to the current doc,
      * as if the doc was in the folder for the given locale.
      */
-    private function getModuleResourcePath(string $locale, string $url): string
+    private function getModuleResourcePath(array $docData, string $locale, string $url): string
     {
-        return $this->docData['module'] . ':' . $this->getPathInModule($locale, $url);
+        return $docData['module'] . ':' . $this->getPathInModule($docData, $locale, $url);
     }
 
     /**
@@ -242,15 +323,17 @@ class BaseUrlMarkdownExtension implements ExtensionInterface, ConfigurationAware
      * as if the doc was in the folder for the given locale.
      * The path starts with "../" if the URL points outside the module.
      */
-    private function getPathInModule(string $locale, string $url): string
+    private function getPathInModule(array $docData, string $locale, string $url): string
     {
         // Note that we _must_ use Symfony's Path class here to resolve path traversal,
         // because otherwise Silverstripe's Path class will throw an exception while
         // resolving the resource path.
+        // It's okay to deal with here because at this stage there's no chance of
+        // traversing beyond the project root.
         return Path::canonicalize(Controller::join_links([
-            $this->docData['rootPathInModule'],
+            $docData['rootPathInModule'],
             $locale,
-            $this->docData['pathFromLocale'],
+            $docData['pathFromLocale'],
             '..',
             $url,
         ]));
