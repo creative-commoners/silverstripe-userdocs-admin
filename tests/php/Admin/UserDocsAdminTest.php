@@ -4,15 +4,19 @@ namespace SilverStripe\UserDocs\Tests\Admin;
 
 use PHPUnit\Framework\Attributes\DataProvider;
 use SilverStripe\Core\Injector\Injector;
+use SilverStripe\Core\Manifest\ModuleResourceLoader;
 use SilverStripe\Dev\FunctionalTest;
 use SilverStripe\Security\Security;
 use SilverStripe\UserDocs\Admin\UserDocsAdmin;
 use SilverStripe\UserDocs\Admin\UserDocsManifest;
 use SilverStripe\UserDocs\Tests\Admin\UserDocsAdminTest\RecordingUserDocsManifest;
+use SilverStripe\UserDocs\Tests\ExtensionModulesTrait;
 use Symfony\Component\Filesystem\Path;
 
 class UserDocsAdminTest extends FunctionalTest
 {
+    use ExtensionModulesTrait;
+
     protected $usesDatabase = true;
 
     private RecordingUserDocsManifest $manifest;
@@ -26,6 +30,12 @@ class UserDocsAdminTest extends FunctionalTest
         $this->manifest = new RecordingUserDocsManifest();
         Injector::inst()->registerService($this->manifest, UserDocsManifest::class);
         $this->logInWithPermission('ADMIN');
+    }
+
+    protected function tearDown(): void
+    {
+        $this->popExtensionModules();
+        parent::tearDown();
     }
 
     public function testGetDocRoots(): void
@@ -80,6 +90,137 @@ class UserDocsAdminTest extends FunctionalTest
     {
         $response = $this->get($url);
 
+        $this->assertSame(404, $response->getStatusCode());
+    }
+
+    public function testDocsWithExtension(): void
+    {
+        $this->useExtensionModules(['one', 'two']);
+
+        $response = $this->get('admin/user-docs/docs/section/page');
+
+        $this->assertSame(200, $response->getStatusCode());
+        $docsHtml = $this->getDocsHtml($response->getBody());
+        // Extension content is added after the original content
+        $originalPosition = strpos($docsHtml, 'Original content');
+        $this->assertNotFalse($originalPosition);
+        $this->assertGreaterThan($originalPosition, strpos($docsHtml, 'Module two content'));
+        // Markers and the extension's frontmatter aren't rendered
+        $this->assertStringNotContainsString('UserDocsAdmin__userdocs-extension', $response->getBody());
+        $this->assertStringNotContainsString('extends: true', $docsHtml);
+        $this->assertStringNotContainsString('<hr', $docsHtml);
+        // Images in the extension are relative to the extension's file
+        $this->assertStringContainsString(
+            'src="' . ModuleResourceLoader::resourceURL('test/module-two:docs/en/01_section/images/extension.png'),
+            $docsHtml
+        );
+    }
+
+    public function testDocsWithExtensionHeadings(): void
+    {
+        $this->useExtensionModules(['one', 'two']);
+
+        $docsHtml = $this->getDocsHtml($this->get('admin/user-docs/docs/section/page')->getBody());
+
+        // There is one table of contents
+        $this->assertSame(1, substr_count($docsHtml, 'class="toc-container"'));
+        preg_match('#<nav class="toc-container".*?</nav>#s', $docsHtml, $tableOfContents);
+        // The original and the extension both have a "Notes" heading, but each needs its own ID
+        $contentHtml = str_replace($tableOfContents[0], '', $docsHtml);
+        preg_match_all('#<h2 id="([^"]+)"#', $contentHtml, $matches);
+        $headingIds = $matches[1];
+        $this->assertCount(2, $headingIds);
+        $this->assertSame($headingIds, array_values(array_unique($headingIds)));
+        // The table of contents includes the headings from the extension
+        foreach ($headingIds as $headingId) {
+            $this->assertStringContainsString("#$headingId\"", $tableOfContents[0]);
+        }
+    }
+
+    public static function provideDocsWithExtensionKey(): array
+    {
+        return [
+            'overridden extension' => [
+                'slug' => 'section/overridden',
+                'expectedContent' => ['Original content.', 'Module three override.'],
+                'unexpectedContent' => ['Module two extension.'],
+            ],
+            'removed extension' => [
+                'slug' => 'section/removed',
+                'expectedContent' => ['Original content.'],
+                'unexpectedContent' => ['Module two removed content.'],
+            ],
+            'key that isn\'t a module name' => [
+                'slug' => 'section/invalid_key',
+                'expectedContent' => ['Original content.'],
+                'unexpectedContent' => ['Invalid key content.'],
+            ],
+            'extension of a module that isn\'t installed' => [
+                'slug' => 'section/uninstalled',
+                'expectedContent' => ['Original content.'],
+                'unexpectedContent' => ['Uninstalled module content.'],
+            ],
+        ];
+    }
+
+    #[DataProvider('provideDocsWithExtensionKey')]
+    public function testDocsWithExtensionKey(string $slug, array $expectedContent, array $unexpectedContent): void
+    {
+        $this->useExtensionModules(['three', 'two', 'one']);
+
+        $response = $this->get("admin/user-docs/docs/$slug");
+
+        $this->assertSame(200, $response->getStatusCode());
+        $docsHtml = $this->getDocsHtml($response->getBody());
+        foreach ($expectedContent as $content) {
+            $this->assertStringContainsString($content, $docsHtml);
+        }
+        foreach ($unexpectedContent as $content) {
+            $this->assertStringNotContainsString($content, $docsHtml);
+        }
+    }
+
+    public function testDocsWithFrontMatterOnlyExtension(): void
+    {
+        $this->useExtensionModules(['one', 'two']);
+
+        $response = $this->get('admin/user-docs/docs/section/frontmatter_only_extension');
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame(1, substr_count($this->getDocsHtml($response->getBody()), 'Original content'));
+    }
+
+    public function testDocsWithExtensionWithoutOriginal(): void
+    {
+        $this->useExtensionModules(['two', 'one']);
+
+        $response = $this->get('admin/user-docs/docs/section/extension_only');
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame(1, substr_count($this->getDocsHtml($response->getBody()), 'Extension only content'));
+    }
+
+    public static function provideDocsWithExtensionOfMissingDoc(): array
+    {
+        return [
+            'original without content' => [
+                'slug' => 'section/empty_original',
+            ],
+            'extension without content and without an original' => [
+                'slug' => 'section/empty_extension_only',
+            ],
+        ];
+    }
+
+    #[DataProvider('provideDocsWithExtensionOfMissingDoc')]
+    public function testDocsWithExtensionOfMissingDoc(string $slug): void
+    {
+        $this->useExtensionModules(['one', 'two']);
+
+        $response = $this->get("admin/user-docs/docs/$slug");
+
+        // The doc exists, but extensions don't replace a main doc that has no content
+        $this->assertArrayHasKey($slug, $this->manifest->getLocalisedDocData());
         $this->assertSame(404, $response->getStatusCode());
     }
 
@@ -212,5 +353,27 @@ class UserDocsAdminTest extends FunctionalTest
             $lookaheads .= '(?=[^>]*\s' . preg_quote($name, '/') . '="' . preg_quote($value, '/') . '")';
         }
         return '/<' . preg_quote($tag, '/') . '\b' . $lookaheads . '[^>]*>/';
+    }
+
+    /**
+     * Register the fixture modules in priority order (highest first), and use their docs
+     */
+    private function useExtensionModules(array $moduleNames): void
+    {
+        $this->pushExtensionModules($moduleNames);
+        $roots = [];
+        foreach ($moduleNames as $moduleName) {
+            $roots["test/module-$moduleName:docs"] = true;
+        }
+        UserDocsAdmin::config()->set('documentation_roots', $roots);
+    }
+
+    /**
+     * Get the rendered docs from inside the shadow DOM template of a docs page
+     */
+    private function getDocsHtml(string $body): string
+    {
+        preg_match('#<template shadowrootmode="open">(.*)</template>#s', $body, $matches);
+        return $matches[1] ?? '';
     }
 }

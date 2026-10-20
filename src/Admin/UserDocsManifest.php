@@ -35,6 +35,12 @@ class UserDocsManifest implements Flushable
     protected const CACHE_KEY = 'manifest';
 
     /**
+     * Matches a composer package name, e.g. "silverstripe/admin"
+     * Refer to https://getcomposer.org/doc/04-schema.md#name
+     */
+    private const MODULE_NAME_PATTERN = '#^[a-z0-9]([_.-]?[a-z0-9]+)*/[a-z0-9](([_.]|-{1,2})?[a-z0-9]+)*$#';
+
+    /**
      * Array of properties to cache
      */
     protected array $cachedProperties = [
@@ -57,6 +63,11 @@ class UserDocsManifest implements Flushable
      * The data is hierarchical, with each node's children in a 'children' key.
      */
     private array $treeData = [];
+
+    /**
+     * Localised doc data, keyed by the list of locales it was built for
+     */
+    private array $localisedDocData = [];
 
     public static function flush(): void
     {
@@ -147,31 +158,18 @@ class UserDocsManifest implements Flushable
      * collision where two modules contain docs with the same slug will be resolved by the
      * module with the higher priority retaining its documentation and the lower priority
      * doc being discarded.
+     *
+     * Extensions are kept separately for each page, keyed by their extension key. If two modules
+     * have an extension with the same key, the module with the higher priority is used.
      */
     private function mergeModuleData(array $data): array
     {
         // Sort data by module priority order as determined by the module manifest.
-        $sortedModules = array_map(
-            fn (Module $module) => $module->getName(),
-            ModuleLoader::inst()->getManifest()->getModules()
-        );
-        uksort($data, function (string $moduleA, string $moduleB) use ($sortedModules) {
-            $posA = array_search($moduleA, $sortedModules);
-            $posB = array_search($moduleB, $sortedModules);
-
-            // If a key isn't found in the order array, push it to the beginning as it is now
-            // the least important module.
-            // That *shouldn't* ever happen but it doesn't hurt to account for the edge case.
-            if ($posA === false) {
-                return -1;
-            }
-            if ($posB === false) {
-                return 1;
-            }
-
-            // Note that the sorted modules are in priority order where the FIRST module is
-            // the most important. We want the reverse order here so that the most important
-            // module gets to override everything in the next step.
+        // We'll merge the lowest priority module first, so that higher priority modules replace its docs
+        $modulePositions = array_flip(array_keys(ModuleLoader::inst()->getManifest()->getModules()));
+        uksort($data, function (string $moduleA, string $moduleB) use ($modulePositions) {
+            $posA = $modulePositions[$moduleA] ?? PHP_INT_MAX;
+            $posB = $modulePositions[$moduleB] ?? PHP_INT_MAX;
             return $posB <=> $posA;
         });
 
@@ -183,10 +181,35 @@ class UserDocsManifest implements Flushable
         foreach ($data as $datum) {
             foreach ($datum as $locale => $localeData) {
                 foreach ($localeData as $slug => $docData) {
-                    if (!isset($result[$locale][$slug]) || !$this->isRootWithoutIndex($docData)) {
+                    if ($docData['isExtension']) {
+                        $key = $docData['extensionKey'];
+                        // If this is extending an installed module, add the extension and optionally update the title.
+                        if (isset($modulePositions[$key])) {
+                            $result[$locale][$slug]['extensions'][$key] = $docData;
+                            if (!empty($docData['frontMatter']['title'])) {
+                                $result[$locale][$slug]['title'] = $docData['title'];
+                            }
+                        // If the extension key doesn't match Composer's package name regex, log a warning.
+                        } elseif (!preg_match(UserDocsManifest::MODULE_NAME_PATTERN, $key)) {
+                            Injector::inst()->get(LoggerInterface::class)->warning(
+                                "Documentation at {$docData['filePath']} has \"extends: $key\", which isn't"
+                                . " a module name"
+                            );
+                        }
+                        // Otherwise it extends a module that isn't installed, so silently ignore it.
+                        continue;
+                    }
+                    if (!isset($result[$locale][$slug]['slug']) || !$this->isRootWithoutIndex($docData)) {
+                        $docData['extensions'] = $result[$locale][$slug]['extensions'] ?? [];
                         $result[$locale][$slug] = $docData;
                     }
                 }
+            }
+        }
+
+        foreach ($result as $locale => $localeData) {
+            foreach ($localeData as $slug => $docData) {
+                $result[$locale][$slug] = $this->reorderExtensions($docData, $modulePositions);
             }
         }
         return $result;
@@ -269,6 +292,7 @@ class UserDocsManifest implements Flushable
         $isIndex = $fileName === 'index.md';
         $moduleObj = ModuleLoader::inst()->getManifest()->getModuleByPath($filePath);
         $module = $moduleObj->getName();
+        $extensionKey = $this->getExtensionKey($frontMatter['extends'] ?? false, $module);
 
         $pathFromBase = ltrim(FilesystemPath::makeRelative($filePath, $basePath), '/');
         $locale = explode('/', $pathFromBase)[0];
@@ -306,7 +330,9 @@ class UserDocsManifest implements Flushable
         $data[$module][$locale][$slug] = [
             'order' => $this->extractOrderFromFilename($isIndex ? basename(dirname($filePath)) : $fileName),
             'frontMatter' => $frontMatter,
-            'title' => $frontMatter['title'] ?? $this->filenameToTitle($fileName, $filePath),
+            'title' => $frontMatter['title'] ?? $this->fileNameToTitle($fileName, $filePath),
+            'isExtension' => $extensionKey !== null,
+            'extensionKey' => $extensionKey,
             'isIndex' => $isIndex,
             'hasContent' => $hasContent,
             'fileName' => $fileName,
@@ -333,17 +359,33 @@ class UserDocsManifest implements Flushable
      * Get all data about documentation for the current locale.
      * Falls back to the shortened locale and then to the default locale.
      * For example pt_BR will fallback to pt which will then fallback to en_US which falls back to en.
+     * Each extension falls back separately from the page it extends.
      */
     public function getLocalisedDocData(): array
     {
+        // Note we only "cache" this for the current request since it's called up to 3 times
+        // per request. It's not worth caching this persistently since building this is about
+        // the same effort as unserializing it, and additional locales being used would then
+        // bloat the cache unnecessarily.
+        $cacheKey = implode(',', static::getLocalePriority());
+        if (isset($this->localisedDocData[$cacheKey])) {
+            return $this->localisedDocData[$cacheKey];
+        }
+
         $result = [];
         foreach ($this->getDataForLocales($this->docData) as $localeData) {
             foreach ($localeData as $slug => $docDatum) {
-                if (!isset($result[$slug]) || !$this->isRootWithoutIndex($docDatum)) {
-                    $result[$slug] = $docDatum;
+                $existing = $result[$slug] ?? null;
+                $extensions = array_replace($existing['extensions'] ?? [], $docDatum['extensions'] ?? []);
+                if ($existing && $this->isPlaceholder($docDatum)) {
+                    $docDatum = $existing;
                 }
+                $docDatum['extensions'] = $extensions;
+                $result[$slug] = $docDatum;
             }
         }
+
+        $this->localisedDocData[$cacheKey] = $result;
         return $result;
     }
 
@@ -358,7 +400,8 @@ class UserDocsManifest implements Flushable
         foreach ($this->getDataForLocales($this->treeData) as $localeTree) {
             $result = $this->mergeTreeDataRecursively($result, $localeTree);
         }
-        return $result;
+        // Titles and other data can come from extensions or other locales, so take them from the doc data
+        return $this->updateTreeFromDocData($result, $this->getLocalisedDocData());
     }
 
     /**
@@ -433,12 +476,88 @@ class UserDocsManifest implements Flushable
     }
 
     /**
+     * Placeholder data must not replace data for the same page from another locale.
+     * This is a root without an index.md file, or a page that only has extensions.
+     */
+    private function isPlaceholder(array $docDatum): bool
+    {
+        return ($docDatum['isFromExtension'] ?? false) || $this->isRootWithoutIndex($docDatum);
+    }
+
+    /**
+     * Get the key that identifies an extension from the value of "extends" in its frontmatter.
+     * The key is the name of the module whose extension this is.
+     * Returns null if the doc isn't an extension.
+     */
+    private function getExtensionKey(mixed $extends, string $module): ?string
+    {
+        if ($extends === false) {
+            return null;
+        }
+        if ($extends === true) {
+            return $module;
+        }
+        // Other values aren't module names, but they are converted so a warning can be logged
+        return is_string($extends) ? $extends : var_export($extends, true);
+    }
+
+    /**
+     * Get the position of the module that decides where an extension goes.
+     * This is the module named by the extension key, so that replacing an extension doesn't move it.
+     */
+    private function getExtensionPosition(array $extension, array $modulePositions): int
+    {
+        return $modulePositions[$extension['extensionKey']] ?? PHP_INT_MAX;
+    }
+
+    /**
+     * Sort the extensions for a doc so that extensions from lower priority modules come first.
+     * If the doc only has extensions, the first extension is also used as the doc page itself.
+     */
+    private function reorderExtensions(array $docDatum, array $modulePositions): array
+    {
+        $extensions = $docDatum['extensions'] ?? [];
+        uasort(
+            $extensions,
+            fn (array $a, array $b) => $this->getExtensionPosition($b, $modulePositions)
+                <=> $this->getExtensionPosition($a, $modulePositions)
+        );
+        if (!isset($docDatum['slug']) || ($docDatum['isFromExtension'] ?? false)) {
+            $docDatum = reset($extensions);
+            $docDatum['isFromExtension'] = true;
+        }
+        $docDatum['extensions'] = $extensions;
+        return $docDatum;
+    }
+
+    /**
+     * Copy the data shown in the tree from the doc data for each node's slug.
+     */
+    private function updateTreeFromDocData(array $tree, array $docData): array
+    {
+        foreach ($tree as $key => $node) {
+            $docDatum = $docData[$node['slug'] ?? ''] ?? null;
+            if ($docDatum) {
+                $node['title'] = $docDatum['title'];
+                $node['isIndex'] = $docDatum['isIndex'];
+                $node['hasContent'] = $docDatum['hasContent'];
+            }
+            if (!empty($node['children'])) {
+                $node['children'] = $this->updateTreeFromDocData($node['children'], $docData);
+            }
+            $tree[$key] = $node;
+        }
+        return $tree;
+    }
+
+    /**
      * Reload state from given cache data
      *
      * @return bool True if cache was valid and successfully loaded
      */
     protected function loadState(array $data): bool
     {
+        $this->localisedDocData = [];
         $success = true;
         if (empty($data)) {
             return $success;

@@ -127,11 +127,39 @@ class UserDocsAdmin extends LeftAndMain
         if (!$docData['hasContent'] || !file_exists($filePath)) {
             $this->httpError(404);
         }
+        $markdown = file_get_contents($filePath);
+
+        $extensions = array_values($docData['extensions'] ?? []);
+        $frontMatterParser = (new FrontMatterExtension())->getFrontMatterParser();
+        foreach ($extensions as $i => $extensionDocData) {
+            // Skip extensions that have no content or are the same as the main file
+            $extensionFilePath = $extensionDocData['filePath'];
+            if (
+                $docData['filePath'] === $extensionDocData['filePath']
+                || !$extensionDocData['hasContent']
+                || !file_exists($extensionFilePath)
+            ) {
+                continue;
+            }
+            // Pre-parsing the content with the frontmatter parser ensures we only get the
+            // actual markdown content
+            $parsedExtension = $frontMatterParser->parse(file_get_contents($extensionFilePath));
+            // Add a marker comment that will be picked up by BaseUrlMarkdownExtension before
+            // appending extension content
+            $marker = BaseUrlMarkdownExtension::getExtensionMarker($i);
+            $markdown .= "\n\n$marker\n\n" . $parsedExtension->getContent();
+        }
+
         /** @var MarkdownConverter $converter */
         $converter = Injector::inst()->create(MarkdownConverter::class . '.userdocs');
-        $converter->getEnvironment()->addExtension(BaseUrlMarkdownExtension::create($this->Link('docs'), $docData));
-        $markdown = $converter->convert(file_get_contents($filePath));
-        return DBField::create_field('HTMLFragment', $markdown->getContent());
+        $baseUrlExtension = BaseUrlMarkdownExtension::create(
+            $this->Link('docs'),
+            $docData,
+            $extensions
+        );
+        $converter->getEnvironment()->addExtension($baseUrlExtension);
+        $html = $converter->convert($markdown);
+        return DBField::create_field('HTMLFragment', $html->getContent());
     }
 
     /**

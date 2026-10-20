@@ -46,7 +46,7 @@ That will render the following navigation tree:
 
 The title of a page of documentation in the navigation tree is derived by default from the name of the folder/file that represents it. For example `00_some_documentation.md` will have the title "Some documentation" by default.
 
-If you want to update the navigation tree title for a page, you can do this using [frontmatter](./setup#frontmatter-metadata).
+If you want to set the navigation tree title for a page to something specific, you can do this using [frontmatter](./setup#frontmatter-metadata). To change the title of a page from another module without altering content, see [extending a page of documentation](#extending-pages).
 
 Note that the navigation tree title is not used in the documentation page itself. You should still include a `h1` heading to title your documentation page.
 
@@ -81,6 +81,38 @@ Note that the documentation from module two for "Navigation menus" completely ov
 
 > [!TIP]
 > The numeric prefix is allowed to differ between your override folder/file and the original. It will still override the content and also update the ordering of the documentation.
+
+### Extending a page of documentation {#extending-pages}
+
+Sometimes you might want to just add additional information to an existing page of documentation without replacing the page completely.
+
+You can do this using [frontmatter](./setup#frontmatter-metadata), with the `extends` key. By setting `extends: true` in your frontmatter, the content in that file will be added to the bottom of the existing content from the original file instead of replacing it. If multiple modules extend the same page, the files are all appended in the reverse of the module order defined by the `ModuleManifest`, so content from the highest priority module is added last.
+
+If there is no original file for the page, the first extension is used as the page. If that extension has no content, the page isn't shown.
+
+> [!TIP]
+> Other frontmatter metadata in the file will still take effect. For example if you include a title in the frontmatter for your extension page, and the extension comes after the original page, that title will be used instead of the title from the original file. To change only the title of a page, use an extension that has a title in its frontmatter and no other content.
+
+#### Replacing, removing and translating extensions
+
+Each extension belongs to a module. With `extends: true`, that's the module that has the file. Set `extends` to the name of another module to provide that module's extension instead:
+
+```yml
+---
+extends: 'other/module'
+---
+```
+
+- To **override** an extension, add a file with the same path to a module that has a higher priority than the module with the extension (for example your project), and set `extends` to the name of that module. The content in your file is used instead of the content in the other module's extension.
+- To **remove** an extension, override it with a file that only has frontmatter.
+- To **translate** an extension, see [localising documentation](#localising-documentation).
+
+If no installed module has the name, the extension isn't used, because the content it extends isn't there. If the value isn't a module name at all, a warning is logged and the extension isn't used.
+
+Extensions are ordered by the module they belong to, so an override goes in the same place as the extension it replaces.
+
+> [!WARNING]
+> `extends` must be the boolean `true` or the name of a module. YAML reads `true`, `yes` and `on` as booleans, but `"true"` (in quotes) is a string. It isn't a module name, so the extension isn't used.
 
 ### Adding new tree nodes
 
@@ -120,5 +152,7 @@ You can do this by setting up documentation with the same file structure (includ
 > When localising documentation, you *must* match the folder and file names! Do not translate the names of folders or files. Instead, to update the title use frontmatter.
 
 If you want to localise the name of a root that has no content directly associated with it, you can create an `index.md` file for that root folder and only include the frontmatter data.
+
+To localise an [extension](#extending-pages), add a file with the same path under the appropriate locale folder, and set `extends` to the module the extension belongs to. For example if `other/module` extends a page, use `extends: 'other/module'` in your translation. If the translation is in the same module as the extension, `extends: true` works too. Each extension falls back to other locales separately from the page it extends, so a translated page still shows extensions that haven't been translated.
 
 Note that content that hasn't been localised will fallback to unlocalised documentation. For example if your current locale is `pt_BR` and your default locale is `fr_FR`, the order in which documentation is looked up is as follows: `pt_BR`, `pt`, `fr_FR`, `fr`, `en`. English is always the final fallback that is checked, unless your current locale is also English in which case it takes priority.

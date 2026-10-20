@@ -35,14 +35,18 @@ SilverStripe\UserDocs\Admin\UserDocsAdmin:
 
 Documentation pages can include metadata in the form of frontmatter. This is YAML in a block fenced by `---` at the top of the file. For example:
 
-```text
+```yml
 ---
-title: My page title
-moredata: This is just some more data
+title: "My page title"
+extends: true
+moredata: "This is just some more data"
 ---
 ```
 
-You can include any information you want in the frontmatter, but the only information that will be used by this module is the title, which is used to override the default navigation tree title.
+You can include any information you want in the frontmatter, but the only information that will be used by this module is as follows:
+
+- `title`: (string) The navigation tree title for the page (see [navigation tree titles](./documentation_structure#navigation-tree-titles))
+- `extends`: (`true` or a module name) If set, the content from this file is appended to the content from the original instead of replacing it. A module name replaces, removes or translates that module's extension (see [extending a page of documentation](./documentation_structure#extending-pages))
 
 ## Images in docs
 
