@@ -54,7 +54,7 @@ class UserDocsManifestTest extends SapphireTest
             'module' => 'silverstripe/userdocs-admin',
             'locale' => 'en',
             'slug' => 'getting_started',
-            'parentSlug' => '.',
+            'parentSlug' => null,
             'rootPathInModule' => 'tests/php/fixtures/docs',
             'pathFromLocale' => '01_getting_started/index.md',
         ], $docData['getting_started']);

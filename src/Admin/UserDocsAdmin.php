@@ -28,6 +28,7 @@ use SilverStripe\ORM\Hierarchy\MarkedSet;
 use SilverStripe\Security\InheritedPermissions;
 use SilverStripe\Security\PermissionCheckable;
 use SilverStripe\UserDocs\Markdown\BaseUrlMarkdownExtension;
+use SilverStripe\UserDocs\Markdown\Breadcrumbs\BreadcrumbsExtension;
 use Symfony\Component\Filesystem\Path;
 
 /**
@@ -129,7 +130,9 @@ class UserDocsAdmin extends LeftAndMain
         }
         /** @var MarkdownConverter $converter */
         $converter = Injector::inst()->create(MarkdownConverter::class . '.userdocs');
-        $converter->getEnvironment()->addExtension(BaseUrlMarkdownExtension::create($this->Link('docs'), $docData));
+        $environment = $converter->getEnvironment();
+        $environment->addExtension(BaseUrlMarkdownExtension::create($this->Link('docs'), $docData));
+        $environment->addExtension(BreadcrumbsExtension::create($this->Link('docs'), $this->currentDocSlug, $data));
         $markdown = $converter->convert(file_get_contents($filePath));
         return DBField::create_field('HTMLFragment', $markdown->getContent());
     }

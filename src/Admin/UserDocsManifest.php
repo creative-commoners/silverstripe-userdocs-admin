@@ -285,6 +285,9 @@ class UserDocsManifest implements Flushable
         }
         $slug = $this->getSlugForPath($pathFromLocale, $isRootDir);
         $parentSlug = dirname($slug);
+        if ($parentSlug === '.') {
+            $parentSlug = null;
+        }
 
         if (!array_key_exists($locale, $data[$module] ?? [])) {
             $data[$module][$locale] = [];
@@ -295,7 +298,6 @@ class UserDocsManifest implements Flushable
         if (
             $parentSlug
             && !array_key_exists($parentSlug, $data[$module][$locale])
-            && $parentSlug !== '.'
             && !str_contains($parentSlug, '/')
         ) {
             $basePathWithLocale = Path::join($basePath, $locale);
