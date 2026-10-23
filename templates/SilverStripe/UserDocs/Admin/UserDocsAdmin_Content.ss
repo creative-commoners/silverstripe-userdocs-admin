@@ -20,10 +20,13 @@
         </div>
 		<div class="panel panel--padded panel--scrollable flexbox-area-grow fill-height docs-shadow-root"<% if $CurrentDocLang %> lang="$CurrentDocLang.ATT"<% end_if %>>
             <template shadowrootmode="open">
-                <% loop $CssFiles %>
-                    <link rel="stylesheet" href="$resourceURL($Me)">
-                <% end_loop %>
-			    $RenderedDocs
+                <div class="user-docs-container">
+                    $RenderedDocs
+                    <%-- Note we put the CSS files after the rendered content so that we can reliably use :first to target the h1 with no breadcrumbs. --%>
+                    <% loop $CssFiles %>
+                        <link rel="stylesheet" href="$resourceURL($Me)">
+                    <% end_loop %>
+                </div>
             </template>
 		</div>
 	</div>
