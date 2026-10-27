@@ -3,13 +3,20 @@
 namespace SilverStripe\UserDocs\Tests\Admin;
 
 use PHPUnit\Framework\Attributes\DataProvider;
+use Psr\SimpleCache\CacheInterface;
 use SilverStripe\Core\Injector\Injector;
 use SilverStripe\Dev\FunctionalTest;
 use SilverStripe\Security\Security;
 use SilverStripe\UserDocs\Admin\UserDocsAdmin;
 use SilverStripe\UserDocs\Admin\UserDocsManifest;
+use SilverStripe\UserDocs\Search\SearchIndex;
+use SilverStripe\UserDocs\Search\TntSearchFactory;
 use SilverStripe\UserDocs\Tests\Admin\UserDocsAdminTest\RecordingUserDocsManifest;
+use Symfony\Component\Cache\Adapter\ArrayAdapter;
+use Symfony\Component\Cache\Psr16Cache;
+use Symfony\Component\Filesystem\Filesystem;
 use Symfony\Component\Filesystem\Path;
+use TeamTNT\TNTSearch\TNTSearch;
 
 class UserDocsAdminTest extends FunctionalTest
 {
@@ -17,15 +24,43 @@ class UserDocsAdminTest extends FunctionalTest
 
     private RecordingUserDocsManifest $manifest;
 
+    private string $searchStoragePath;
+
     protected function setUp(): void
     {
         parent::setUp();
+        // Keep the real site's search index out of it
+        $this->searchStoragePath = Path::join(TEMP_PATH, 'userdocs-admin-test-search-index');
+        Injector::inst()->registerService(
+            new Psr16Cache(new ArrayAdapter()),
+            CacheInterface::class . '.userdocssearch'
+        );
+        Injector::inst()->registerService(
+            (new TntSearchFactory())->create(TNTSearch::class, [
+                'config' => ['driver' => 'filesystem', 'storage' => $this->searchStoragePath],
+            ]),
+            TNTSearch::class . '.userdocs'
+        );
         UserDocsAdmin::config()->set('documentation_roots', [
             'silverstripe/userdocs-admin:tests/php/fixtures/docs' => true,
         ]);
         $this->manifest = new RecordingUserDocsManifest();
         Injector::inst()->registerService($this->manifest, UserDocsManifest::class);
         $this->logInWithPermission('ADMIN');
+    }
+
+    protected function tearDown(): void
+    {
+        (new Filesystem())->remove($this->searchStoragePath);
+        parent::tearDown();
+    }
+
+    public function testGetSearchResultsBuildsIndex(): void
+    {
+        $response = $this->get('admin/user-docs?q[terms]=details');
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertTrue(SearchIndex::singleton()->isBuilt());
     }
 
     public function testGetDocRoots(): void

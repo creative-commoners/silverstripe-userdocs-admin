@@ -40,7 +40,7 @@ class UserDocsManifestTest extends SapphireTest
 
     public function testHandleFile(): void
     {
-        $docData = $this->getDocsManifest()->getState()['en'];
+        $docData = $this->getDocsManifest()->getDocData('en');
         $fixturePath = $this->fixturePath('docs/en/01_getting_started');
 
         $this->assertSame([
@@ -132,15 +132,26 @@ class UserDocsManifestTest extends SapphireTest
 
     public function testHandleFileWithFrontMatterOnly(): void
     {
-        $docData = $this->getDocsManifest()->getState()['en'];
+        $docData = $this->getDocsManifest()->getDocData('en');
 
         $this->assertSame('Title only', $docData['title_only']['title']);
         $this->assertFalse($docData['title_only']['hasContent']);
     }
 
+    public function testHandleFileWithBlankTitle(): void
+    {
+        $manifest = new UserDocsManifest();
+        $manifest->regenerate([$this->fixturePath('blank_title')], true);
+        $titles = array_column($manifest->getDocData('en'), 'title', 'fileName');
+
+        $this->assertSame('Section', $titles['index.md']);
+        $this->assertSame('Empty title', $titles['empty_title.md']);
+        $this->assertSame('Padded title', $titles['padded_title.md']);
+    }
+
     public function testFileNameToTitle(): void
     {
-        $titles = array_column($this->getDocsManifest()->getState()['fr'], 'title', 'fileName');
+        $titles = array_column($this->getDocsManifest()->getDocData('fr'), 'title', 'fileName');
 
         $this->assertSame('Étapes suivantes', $titles['03_étapes_suivantes.md']);
         $this->assertSame('Été indien', $titles['04_ÉTÉ_INDIEN.md']);
@@ -192,7 +203,7 @@ class UserDocsManifestTest extends SapphireTest
     {
         // fixtures/docs_sibling shares a prefix with fixtures/docs but isn't registered,
         // so its files must not show up (e.g. as a bogus "_sibling" locale)
-        $this->assertEqualsCanonicalizing(['en', 'fr', 'fr_CA'], array_keys($this->getDocsManifest()->getState()));
+        $this->assertEqualsCanonicalizing(['en', 'fr', 'fr_CA'], array_keys($this->getDocsManifest()->getDocData()));
     }
 
     public function testGetLocalisedTreeDataRootOrder(): void
@@ -386,8 +397,8 @@ class UserDocsManifestTest extends SapphireTest
         $manifest = new UserDocsManifest();
         $manifest->init([$this->fixturePath('docs')], true);
 
-        $this->assertSame(['en'], array_keys($manifest->getState()));
-        $this->assertSame(['sibling_section', 'sibling_section/page'], array_keys($manifest->getState()['en']));
+        $this->assertSame(['en'], array_keys($manifest->getDocData()));
+        $this->assertSame(['sibling_section', 'sibling_section/page'], array_keys($manifest->getDocData('en')));
     }
 
     public function testFlush(): void
@@ -398,7 +409,7 @@ class UserDocsManifestTest extends SapphireTest
         $manifest = new UserDocsManifest();
         $manifest->init([$this->fixturePath('docs')], true);
 
-        $this->assertArrayHasKey('getting_started', $manifest->getState()['en']);
+        $this->assertArrayHasKey('getting_started', $manifest->getDocData('en'));
     }
 
     public function testInitWithInvalidCache(): void
@@ -408,7 +419,7 @@ class UserDocsManifestTest extends SapphireTest
         $manifest = new UserDocsManifest();
         $manifest->init([$this->fixturePath('docs')], true);
 
-        $this->assertArrayHasKey('getting_started', $manifest->getState()['en']);
+        $this->assertArrayHasKey('getting_started', $manifest->getDocData('en'));
     }
 
     private function getDocsManifest(): UserDocsManifest

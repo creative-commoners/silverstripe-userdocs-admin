@@ -303,10 +303,11 @@ class UserDocsManifest implements Flushable
             $this->handleFile($data, $rootDirName, Path::join($basePathWithLocale, $rootDirName), $basePath);
         }
 
+        $title = trim($frontMatter['title'] ?? '');
         $data[$module][$locale][$slug] = [
             'order' => $this->extractOrderFromFilename($isIndex ? basename(dirname($filePath)) : $fileName),
             'frontMatter' => $frontMatter,
-            'title' => $frontMatter['title'] ?? $this->filenameToTitle($fileName, $filePath),
+            'title' => $title !== '' ? $title : $this->filenameToTitle($fileName, $filePath),
             'isIndex' => $isIndex,
             'hasContent' => $hasContent,
             'fileName' => $fileName,
@@ -322,10 +323,15 @@ class UserDocsManifest implements Flushable
     }
 
     /**
-     * Load current state into an array of data.
+     * Get the metadata about documentation, optionally for a single locale.
+     * Note that this does not include the locale fallbacks - use getLocalisedDocData()
+     * if you need the data to be flowing through the locale cascade.
      */
-    public function getState(?string $locale = null): array
+    public function getDocData(?string $locale = null): array
     {
+        if ($locale !== null) {
+            return $this->docData[$locale] ?? [];
+        }
         return $this->docData;
     }
 

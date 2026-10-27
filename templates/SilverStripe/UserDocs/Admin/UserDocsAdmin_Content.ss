@@ -1,6 +1,6 @@
 <% if $CurrentDocSlug %>
-<%-- Left and right panel together (i.e. we are viewing a docc page) --%>
-<div class="has-panel cms-content flexbox-area-grow fill-width fill-height $BaseCSSClasses" data-layout-type="border" data-pjax-fragment="Content">
+<%-- Left and right panel together (i.e. we are viewing a doc page) --%>
+<div class="has-panel cms-content flexbox-area-grow fill-width fill-height $BaseCSSClasses" data-layout-type="border" data-pjax-fragment="Content" data-search-index-url="$Link('initIndex')">
 	<%-- Tools includes the left panel --%>
     $Tools
     <%-- The rest of this is the right panel --%>
@@ -11,12 +11,14 @@
                     <div class="breadcrumbs-wrapper">
                         <span class="crumb last">$SectionTitle</span>
                     </div>
+                    $SearchForm.FilterButton($TreeIsFiltered)
                     <button type="button" class="btn menu-button menu-button--open" aria-controls="docs-tree-flyout-menu" aria-expanded="false">
                         <span class="btn__icon menu-button__icon font-icon-list" aria-hidden="true"></span>
                         <%t SilverStripe\UserDocs\Admin\UserDocsAdmin.TreeContents 'Contents' %>
                     </button>
                 </div>
             </div>
+            $SearchForm.Placeholder($TreeIsFiltered) <%-- @TODO currently clicking the above filter button actually triggers the (hidden) left panel placeholder --%>
         </div>
 		<div class="panel panel--padded panel--scrollable flexbox-area-grow fill-height docs-shadow-root"<% if $CurrentDocLang %> lang="$CurrentDocLang.ATT"<% end_if %>>
             <template shadowrootmode="open">
@@ -51,7 +53,7 @@
 
 <% else %>
 <%-- Left panel only --%>
-<div id="pages-controller-cms-content" class="flexbox-area-grow fill-height cms-content $BaseCSSClasses" data-layout-type="border" data-pjax-fragment="Content">
+<div id="pages-controller-cms-content" class="flexbox-area-grow fill-height cms-content $BaseCSSClasses" data-layout-type="border" data-pjax-fragment="Content" data-search-index-url="$Link('initIndex')">
     <% include SilverStripe\\UserDocs\\Admin\\UserDocsAdmin_LeftPanel %>
 </div>
 <% end_if %>

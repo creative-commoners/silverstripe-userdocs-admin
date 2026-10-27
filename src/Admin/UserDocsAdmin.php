@@ -21,6 +21,8 @@ use SilverStripe\Core\Config\Config;
 use SilverStripe\Core\Injector\Injector;
 use SilverStripe\Core\Manifest\ModuleResourceLoader;
 use SilverStripe\i18n\i18n;
+use SilverStripe\Model\List\ArrayList;
+use SilverStripe\Model\List\PaginatedList;
 use SilverStripe\ORM\DataObject;
 use SilverStripe\ORM\FieldType\DBField;
 use SilverStripe\ORM\FieldType\DBHTMLText;
@@ -28,6 +30,8 @@ use SilverStripe\ORM\Hierarchy\MarkedSet;
 use SilverStripe\Security\InheritedPermissions;
 use SilverStripe\Security\PermissionCheckable;
 use SilverStripe\UserDocs\Markdown\BaseUrlMarkdownExtension;
+use SilverStripe\UserDocs\Search\SearchForm;
+use SilverStripe\UserDocs\Search\SearchIndex;
 use Symfony\Component\Filesystem\Path;
 
 /**
@@ -63,14 +67,23 @@ class UserDocsAdmin extends LeftAndMain
         'silverstripe/userdocs-admin:client/dist/styles/docs.css',
     ];
 
+    /**
+     * Number of results per page when searching user docs.
+     * Set to 0 to disable pagination.
+     */
+    private static int $search_results_per_page = 20;
+
     private static array $allowed_actions = [
         'treeview',
         'docs',
+        'getSearchForm',
+        'initIndex',
     ];
 
     private static array $url_handlers = [
         'treeview/$Slug' => 'treeview',
         'docs/$*' => 'docs',
+        'GET SearchForm' => 'getSearchForm',
     ];
 
     private ?string $currentDocSlug = null;
@@ -190,6 +203,26 @@ class UserDocsAdmin extends LeftAndMain
         return str_replace('/', '__SLASH__', $slug);
     }
 
+    /**
+     * Returns a Form for record searching for use in templates.
+     */
+    public function getSearchForm(): SearchForm
+    {
+        $form = SearchForm::create($this);
+        // Allow decorators to modify the form
+        $this->extend('updateSearchForm', $form);
+        return $form;
+    }
+
+    /**
+     * Whether the tree has been filtered in this request or not.
+     */
+    public function treeIsFiltered(): bool
+    {
+        $query = $this->getRequest()->getVar('q');
+        return !empty($query);
+    }
+
     private function getCurrentDocSlugFromId(?string $id): string
     {
         if ($id === null) {
@@ -281,6 +314,53 @@ class UserDocsAdmin extends LeftAndMain
         $html = $this->getTreeFor();
         $this->extend('updateTreeAsUL', $html);
         return $html;
+    }
+
+    /**
+     * Get the HTML markup of results for the current search terms
+     */
+    public function getSearchResults(): DBHTMLText|string
+    {
+        if (!$this->treeIsFiltered()) {
+            // @TODO do we want to do something specific here? Throw exception?
+        }
+        $query = $this->getRequest()->getVar('q') ?? [];
+        $index = SearchIndex::singleton();
+        if (!$index->isSupported()) {
+            $this->httpError(400, 'Searching documentation is not supported on this server');
+        }
+        // The index can be missing after a flush if the page loads with a search query
+        if (!$index->isBuilt()) {
+            $index->init();
+        }
+        $results = PaginatedList::create(
+            ArrayList::create($index->search($query)),
+            $this->getRequest()
+        );
+        $results->setPageLength(static::config()->get('search_results_per_page'));
+        return $this->renderWith(
+            [static::class . '_SearchResults'],
+            ['Results' => $results],
+        );
+    }
+
+    public function getSearchResultSummary(int $indexId): DBHTMLText|string
+    {
+        $query = $this->getRequest()->getVar('q')[SearchForm::DEFAULT_SEARCH_FIELD] ?? '';
+        return DBField::create_field(
+            'HTMLFragment',
+            SearchIndex::singleton()->createSummary($query, $indexId)
+        );
+    }
+
+    public function initIndex(HTTPRequest $request): HTTPResponse
+    {
+        $index = SearchIndex::singleton();
+        if (!$index->isSupported()) {
+            $this->jsonError(400, 'Searching documentation is not supported on this server');
+        }
+        $index->init();
+        return $this->jsonSuccess(200, []);
     }
 
     private function getDocRoots(): array
