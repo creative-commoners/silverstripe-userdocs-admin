@@ -302,6 +302,17 @@ class ExtensionPointMarkdownExtensionTest extends SapphireTest
         ], $this->warnings);
     }
 
+    public function testOnDocumentParsedInvalidNameWithoutWarnings(): void
+    {
+        $markdown = "Before\n\n<!-- userdocs-extension-point: My Point -->\n\nAfter";
+
+        $html = $this->convert($markdown, ["<!-- userdocs-insert-at: My Point -->\n\nRemoved"], logWarnings: false);
+
+        // The content is still handled the same way
+        $this->assertSame("<p>Before</p>\n<p>After</p>", trim($html));
+        $this->assertSame([], $this->warnings);
+    }
+
     public function testOnDocumentParsedNestedInsertMarker(): void
     {
         $html = $this->convert(static::ORIGINAL, [
@@ -337,7 +348,8 @@ class ExtensionPointMarkdownExtensionTest extends SapphireTest
         string $original,
         array $extensions,
         bool $isExtension = false,
-        bool $hasHeadingPermalinks = true
+        bool $hasHeadingPermalinks = true,
+        bool $logWarnings = true
     ): string {
         $markdown = $original;
         $extensionData = [];
@@ -360,7 +372,7 @@ class ExtensionPointMarkdownExtensionTest extends SapphireTest
         if ($hasHeadingPermalinks) {
             $environment->addExtension(new HeadingPermalinkExtension());
         }
-        $environment->addExtension(ExtensionPointMarkdownExtension::create($docData, $extensionData));
+        $environment->addExtension(ExtensionPointMarkdownExtension::create($docData, $extensionData, $logWarnings));
         // Section markers aren't removed by the extension, so remove them as UserDocsAdmin does
         $environment->addEventListener(DocumentParsedEvent::class, [ExtensionDocMarker::class, 'removeMarkers'], -200);
         return (new MarkdownConverter($environment))->convert($markdown)->getContent();
