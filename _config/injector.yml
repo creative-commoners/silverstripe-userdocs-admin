@@ -10,6 +10,12 @@ SilverStripe\Core\Injector\Injector:
     factory: 'SilverStripe\Core\Cache\CacheFactory'
     constructor:
       namespace: 'userdocssearch'
+  Psr\SimpleCache\CacheInterface.userdocssearchindex:
+    factory: 'SilverStripe\Core\Cache\CacheFactory'
+    constructor:
+      namespace: 'userdocssearchindex'
+      # Indexes are too large for in-memory caches, which can have a maximum item size
+      useInMemoryCache: false
   # Commonmark markdown converter injection config
   League\CommonMark\Environment\Environment.userdocs:
     type: prototype
@@ -48,7 +54,3 @@ SilverStripe\Core\Injector\Injector:
       environment: '%$League\CommonMark\Environment\Environment.userdocs'
   TeamTNT\TNTSearch\TNTSearch.userdocs:
     factory: 'SilverStripe\UserDocs\Search\TntSearchFactory'
-    constructor:
-      config:
-        driver: 'filesystem'
-        storage: 'userdocs-admin/indexes/'

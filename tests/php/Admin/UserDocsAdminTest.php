@@ -12,13 +12,12 @@ use SilverStripe\Dev\FunctionalTest;
 use SilverStripe\Security\Security;
 use SilverStripe\UserDocs\Admin\UserDocsAdmin;
 use SilverStripe\UserDocs\Admin\UserDocsManifest;
+use SilverStripe\UserDocs\Search\CacheEngine;
 use SilverStripe\UserDocs\Search\SearchIndex;
 use SilverStripe\UserDocs\Search\TntSearchFactory;
 use SilverStripe\UserDocs\Tests\Admin\UserDocsAdminTest\TestUserDocsManifest;
 use Symfony\Component\Cache\Adapter\ArrayAdapter;
 use Symfony\Component\Cache\Psr16Cache;
-use Symfony\Component\Filesystem\Filesystem;
-use Symfony\Component\Filesystem\Path;
 use TeamTNT\TNTSearch\TNTSearch;
 
 class UserDocsAdminTest extends FunctionalTest
@@ -26,8 +25,6 @@ class UserDocsAdminTest extends FunctionalTest
     private const MODULE = 'silverstripe/userdocs-admin';
 
     protected $usesDatabase = true;
-
-    private string $searchStoragePath;
 
     protected function setUp(): void
     {
@@ -38,14 +35,14 @@ class UserDocsAdminTest extends FunctionalTest
             CacheInterface::class . '.userdocsmanifest'
         );
         // Keep the real site's search index out of it
-        $this->searchStoragePath = Path::join(TEMP_PATH, 'userdocs-admin-test-search-index');
         Injector::inst()->registerService(
             new Psr16Cache(new ArrayAdapter()),
             CacheInterface::class . '.userdocssearch'
         );
+        Injector::inst()->registerService(new Psr16Cache(new ArrayAdapter()), CacheEngine::CACHE_SERVICE);
         Injector::inst()->registerService(
             (new TntSearchFactory())->create(TNTSearch::class, [
-                'config' => ['driver' => 'filesystem', 'storage' => $this->searchStoragePath],
+                'config' => ['engine' => CacheEngine::class],
             ]),
             TNTSearch::class . '.userdocs'
         );
@@ -56,12 +53,6 @@ class UserDocsAdminTest extends FunctionalTest
         ]);
         Injector::inst()->registerService(new TestUserDocsManifest(), UserDocsManifest::class);
         $this->logInWithPermission('ADMIN');
-    }
-
-    protected function tearDown(): void
-    {
-        (new Filesystem())->remove($this->searchStoragePath);
-        parent::tearDown();
     }
 
     public function testGetSearchResultsBuildsIndex(): void

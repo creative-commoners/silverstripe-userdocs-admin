@@ -5,16 +5,22 @@ namespace SilverStripe\UserDocs\Tests\Search;
 use BadMethodCallException;
 use Error;
 use League\CommonMark\Extension\CommonMark\Node\Block\FencedCode;
+use PDO;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Psr\SimpleCache\CacheInterface;
+use RuntimeException;
 use SilverStripe\Core\Injector\Injector;
 use SilverStripe\Core\Path;
 use SilverStripe\Dev\SapphireTest;
 use SilverStripe\i18n\i18n;
 use SilverStripe\UserDocs\Admin\UserDocsManifest;
 use SilverStripe\UserDocs\Search\SearchForm;
+use SilverStripe\UserDocs\Search\CacheEngine;
 use SilverStripe\UserDocs\Search\SearchIndex;
 use SilverStripe\UserDocs\Search\TntSearchFactory;
+use SilverStripe\UserDocs\Tests\Search\SearchIndexTest\FailingCacheEngine;
+use SilverStripe\UserDocs\Tests\Search\SearchIndexTest\FailingSqliteEngine;
+use SilverStripe\UserDocs\Tests\Search\SearchIndexTest\RecordingCacheEngine;
 use SilverStripe\UserDocs\Tests\Search\SearchIndexTest\StubDependenciesSearchIndex;
 use SilverStripe\UserDocs\Tests\Search\SearchIndexTest\StubEngine;
 use SilverStripe\UserDocs\Tests\Search\SearchIndexTest\StubRedisEngine;
@@ -24,6 +30,7 @@ use Symfony\Component\Cache\Psr16Cache;
 use Symfony\Component\Filesystem\Filesystem;
 use TeamTNT\TNTSearch\Engines\MysqlEngine;
 use TeamTNT\TNTSearch\Engines\SqliteEngine;
+use TeamTNT\TNTSearch\Exceptions\IndexNotFoundException;
 use TeamTNT\TNTSearch\Stemmer\PorterStemmer;
 use TeamTNT\TNTSearch\TNTSearch;
 
@@ -49,9 +56,10 @@ class SearchIndexTest extends SapphireTest
             new Psr16Cache(new ArrayAdapter()),
             CacheInterface::class . '.userdocssearch'
         );
+        Injector::inst()->registerService(new Psr16Cache(new ArrayAdapter()), CacheEngine::CACHE_SERVICE);
         Injector::inst()->registerService(
             (new TntSearchFactory())->create(TNTSearch::class, [
-                'config' => ['driver' => 'filesystem', 'storage' => $this->storagePath],
+                'config' => ['engine' => CacheEngine::class],
             ]),
             TNTSearch::class . '.userdocs'
         );
@@ -85,10 +93,26 @@ class SearchIndexTest extends SapphireTest
         ]);
     }
 
+    /**
+     * Check if the index exists, using a new TNTSearch instance so an index kept in memory doesn't count.
+     */
+    private function indexExists(string $indexName): bool
+    {
+        $config = Injector::inst()->get(TNTSearch::class . '.userdocs')->config;
+        $tnt = (new TntSearchFactory())->create(TNTSearch::class, ['config' => $config]);
+        try {
+            $tnt->selectIndex($indexName);
+        } catch (IndexNotFoundException) {
+            return false;
+        }
+        return true;
+    }
+
     protected function tearDown(): void
     {
         (new Filesystem())->remove($this->storagePath);
         StubRedisEngine::$loadConfigError = null;
+        RecordingCacheEngine::$calls = [];
         parent::tearDown();
     }
 
@@ -225,9 +249,67 @@ class SearchIndexTest extends SapphireTest
         SearchIndex::config()->set('zone_weights', ['title' => 5, 'h1' => null]);
         SearchIndex::create()->init();
 
-        $this->assertFileExists(Path::join($this->storagePath, 'en.index'));
-        $this->assertFileExists(Path::join($this->storagePath, 'en.title.index'));
-        $this->assertFileDoesNotExist(Path::join($this->storagePath, 'en.h1.index'));
+        $this->assertTrue($this->indexExists('en.index'));
+        $this->assertTrue($this->indexExists('en.title.index'));
+        $this->assertFalse($this->indexExists('en.h1.index'));
+    }
+
+    public function testInitUsesTransaction(): void
+    {
+        SearchIndex::config()->set('zone_weights', []);
+        Injector::inst()->registerService(
+            (new TntSearchFactory())->create(TNTSearch::class, ['config' => ['engine' => RecordingCacheEngine::class]]),
+            TNTSearch::class . '.userdocs'
+        );
+
+        SearchIndex::create()->init();
+
+        // All of the pages are inserted in one transaction
+        $this->assertSame(
+            ['create', 'begin', 'insert', 'insert', 'insert', 'insert', 'end'],
+            RecordingCacheEngine::$calls
+        );
+    }
+
+    public function testInitFailureRollsBackTransaction(): void
+    {
+        $tnt = (new TntSearchFactory())->create(TNTSearch::class, [
+            'config' => ['engine' => FailingCacheEngine::class],
+        ]);
+        Injector::inst()->registerService($tnt, TNTSearch::class . '.userdocs');
+        try {
+            SearchIndex::create()->init();
+            $this->fail('init() should rethrow the indexing error');
+        } catch (RuntimeException $exception) {
+            $this->assertSame('Indexing failed', $exception->getMessage());
+        }
+
+        // Like the other engines, the empty index from createIndex() is kept, without the partial changes.
+        // "paste" is in the first page, which was indexed before the error.
+        $tnt->selectIndex('en.index');
+        $this->assertSame(0, $tnt->engine->totalDocumentsInCollection());
+        $this->assertNull($tnt->engine->getWordFromWordList('paste'));
+    }
+
+    public function testInitFailureRollsBackSqliteTransaction(): void
+    {
+        if (!in_array('sqlite', PDO::getAvailableDrivers())) {
+            $this->markTestSkipped('The pdo_sqlite PHP extension is not installed.');
+        }
+        $tnt = (new TntSearchFactory())->create(TNTSearch::class, [
+            'config' => ['engine' => FailingSqliteEngine::class, 'storage' => $this->storagePath],
+        ]);
+        Injector::inst()->registerService($tnt, TNTSearch::class . '.userdocs');
+        try {
+            SearchIndex::create()->init();
+            $this->fail('init() should rethrow the indexing error');
+        } catch (RuntimeException $exception) {
+            $this->assertSame('Indexing failed', $exception->getMessage());
+        }
+
+        // SqliteEngine has no method to roll back, so the PDO transaction must be rolled back
+        $this->assertFalse($tnt->engine->index->inTransaction());
+        $this->assertSame(0, (int) $tnt->engine->totalDocumentsInCollection());
     }
 
     public function testSearchIgnoresUnindexedZones(): void
@@ -290,12 +372,14 @@ class SearchIndexTest extends SapphireTest
         i18n::set_locale($locale);
         SearchIndex::create()->init();
         // Simulate another server that shares the index map cache but has its own index storage
-        (new Filesystem())->remove($this->storagePath);
+        Injector::inst()->get(CacheEngine::CACHE_SERVICE)->clear();
+        Injector::inst()->registerService(
+            (new TntSearchFactory())->create(TNTSearch::class, ['config' => ['engine' => CacheEngine::class]]),
+            TNTSearch::class . '.userdocs'
+        );
         $index = SearchIndex::create();
         $this->assertFalse($index->isBuilt());
-
         $index->init();
-
         $this->assertTrue($index->isBuilt());
         $results = $index->search([SearchForm::DEFAULT_SEARCH_FIELD => 'template syntax']);
         $this->assertEqualsCanonicalizing(['loops', 'template_syntax'], array_column($results, 'slug'));
@@ -962,7 +1046,7 @@ class SearchIndexTest extends SapphireTest
 
         $index->clearIndex();
 
-        $this->assertFileDoesNotExist(Path::join($this->storagePath, 'en.index'));
-        $this->assertFileDoesNotExist(Path::join($this->storagePath, 'en.title.index'));
+        $this->assertFalse($this->indexExists('en.index'));
+        $this->assertFalse($this->indexExists('en.title.index'));
     }
 }

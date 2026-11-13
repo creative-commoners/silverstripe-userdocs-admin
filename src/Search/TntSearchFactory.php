@@ -18,6 +18,10 @@ use TeamTNT\TNTSearch\TNTSearch;
 /**
  * Creates a TNTSearch instance with appropriate configuration
  *
+ * If the config has no "driver" key, it is set to "filesystem". If the config has no "storage" key and the engine is
+ * SqliteEngine or a subclass of it, it is set to "userdocs-admin/indexes/". Relative storage paths are relative to
+ * the temporary folder.
+ *
  * In addition to the TNTSearch configuration, the config can have these keys:
  * - redis_dsn: A DSN for RedisEngine, in any format Symfony's RedisAdapter supports.
  *   When set, the redis_options key is used. The redis_scheme, redis_host, and redis_port keys are set from the DSN
@@ -29,35 +33,23 @@ class TntSearchFactory implements Factory
 {
     private const array MYSQL_DSN_SCHEMES = ['mysql', 'mariadb'];
 
+    private const string DEFAULT_STORAGE = 'userdocs-admin/indexes/';
+
     /**
      * Create a TNTSearch object with appropriate configuration
      *
-     * @param array $params Must have a "config" key with an array of TnTsearch configuration
+     * @param array $params An array of TNTSearch configuration in the "config" key, if any config is set
      */
     public function create(string $service, array $params = []): TNTSearch
     {
-        $config = $params['config'];
-        // Relative storage paths are relative to the cache dir
-        if (!empty($config['storage']) && SymfonyPath::isRelative($config['storage'])) {
-            // Use framework's Path class here to avoid path traversal
-            $config['storage'] = Path::join(TEMP_PATH, $config['storage']);
-        }
+        $config = $this->applyDefaults($params['config'] ?? []);
         $redisDsn = $this->getDsn($config, 'redis_dsn', RedisEngine::class);
         $mysqlDsn = $this->getDsn($config, 'mysql_dsn', MysqlEngine::class);
         unset($config['redis_dsn'], $config['mysql_dsn']);
         $redisConnection = null;
-        $redisNodeConfig = null;
         if ($redisDsn !== null) {
-            // The DSN replaces these keys. Remove them so the config doesn't have values that aren't used.
-            unset($config['redis_scheme'], $config['redis_password'], $config['redis_ssl_options']);
-            // Without Predis, RedisEngine throws the error that SearchIndex::isSupported() checks for.
-            if (class_exists(PredisClient::class)) {
-                $redisConnection = $this->createRedisConnection($redisDsn);
-                $redisNodeConfig = $this->getRedisNodeConfig($redisConnection);
-            }
-            // RedisEngine needs a host and port to load its config. Use placeholders if the DSN has no single host.
-            // RedisEngine's own client never connects, because the client made from the DSN replaces it.
-            $config = array_merge($config, $redisNodeConfig ?? ['redis_host' => '127.0.0.1', 'redis_port' => 6379]);
+            $redisConnection = $this->createRedisConnection($redisDsn);
+            $config = $this->applyRedisConnection($config, $redisConnection);
         }
         if ($mysqlDsn !== null) {
             $config = array_merge($config, $this->parseMysqlDsn($mysqlDsn));
@@ -65,21 +57,70 @@ class TntSearchFactory implements Factory
         $tnt = new TNTSearch();
         $tnt->loadConfig($config);
         if ($redisConnection !== null) {
-            $tnt->engine->redis = new PredisClient($redisConnection, $config['redis_options'] ?? null);
-            if ($redisNodeConfig === null) {
-                // Remove the placeholders, so nothing reads an incorrect host and port.
-                unset($tnt->config['redis_host'], $tnt->config['redis_port']);
-                unset($tnt->engine->config['redis_host'], $tnt->engine->config['redis_port']);
-            }
+            $this->replaceRedisClient($tnt, $redisConnection);
         }
         return $tnt;
     }
 
     /**
-     * Create a Predis connection from a DSN in any format Symfony's RedisAdapter supports.
+     * Set the default engine, driver, and storage, and make a relative storage path relative to the temporary folder.
      */
-    private function createRedisConnection(string $dsn): ConnectionInterface
+    private function applyDefaults(array $config): array
     {
+        // Use CacheEngine as a default if none is specified
+        if (empty($config['engine'])) {
+            $config['engine'] = CacheEngine::class;
+        }
+        // The engines create a connector from the driver when they create an index, even if it isn't used
+        $config['driver'] ??= 'filesystem';
+        // SqliteEngine reads the storage path when it loads its config.
+        if (is_a($config['engine'], SqliteEngine::class, true)) {
+            $config['storage'] ??= TntSearchFactory::DEFAULT_STORAGE;
+        }
+        // Relative storage paths are relative to the cache dir
+        if (!empty($config['storage']) && SymfonyPath::isRelative($config['storage'])) {
+            // Use framework's Path class here to avoid path traversal
+            $config['storage'] = Path::join(TEMP_PATH, $config['storage']);
+        }
+        return $config;
+    }
+
+    /**
+     * Replace the Redis connection keys in the config with the keys for the connection made from the DSN.
+     */
+    private function applyRedisConnection(array $config, ?ConnectionInterface $connection): array
+    {
+        // The DSN replaces these keys. Remove them so the config doesn't have values that aren't used.
+        unset($config['redis_scheme'], $config['redis_password'], $config['redis_ssl_options']);
+        $nodeConfig = $connection === null ? null : $this->getRedisNodeConfig($connection);
+        // RedisEngine needs a host and port to load its config. Use placeholders if the DSN has no single host.
+        // RedisEngine's own client never connects, because the client made from the DSN replaces it.
+        return array_merge($config, $nodeConfig ?? ['redis_host' => '127.0.0.1', 'redis_port' => 6379]);
+    }
+
+    /**
+     * Replace the Redis client that RedisEngine made with a client for the connection made from the DSN.
+     */
+    private function replaceRedisClient(TNTSearch $tnt, ConnectionInterface $connection): void
+    {
+        $tnt->engine->redis = new PredisClient($connection, $tnt->config['redis_options'] ?? null);
+        if ($this->getRedisNodeConfig($connection) === null) {
+            // Remove the placeholders, so nothing reads an incorrect host and port.
+            unset($tnt->config['redis_host'], $tnt->config['redis_port']);
+            unset($tnt->engine->config['redis_host'], $tnt->engine->config['redis_port']);
+        }
+    }
+
+    /**
+     * Create a Predis connection from a DSN in any format Symfony's RedisAdapter supports.
+     * Returns null if Predis isn't installed, so that RedisEngine throws the error that
+     * SearchIndex::isSupported() checks for.
+     */
+    private function createRedisConnection(string $dsn): ?ConnectionInterface
+    {
+        if (!class_exists(PredisClient::class)) {
+            return null;
+        }
         // RedisEngine::$redis must be a Predis client, so don't let Symfony select the redis extension.
         // Symfony's client does not throw exceptions for Redis errors, and it does not use redis_options.
         // Only its connection is used, in a client that has the same options as the one RedisEngine makes.
@@ -116,13 +157,10 @@ class TntSearchFactory implements Factory
         if ($dsn === null) {
             return null;
         }
-        if (!is_string($dsn) || $dsn === '') {
-            throw new InvalidArgumentException("The $key config value must be a non-empty string.");
-        }
-        $engine = $config['engine'] ?? SqliteEngine::class;
-        if (!is_string($engine) || !is_a($engine, $engineClass, true)) {
-            $engineName = is_string($engine) ? $engine : get_debug_type($engine);
-            throw new InvalidArgumentException("The $key config value cannot be used with the $engineName engine.");
+        if (!is_a($config['engine'], $engineClass, true)) {
+            throw new InvalidArgumentException(
+                "The $key config value cannot be used with the {$config['engine']} engine."
+            );
         }
         return $dsn;
     }

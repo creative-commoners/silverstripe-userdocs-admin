@@ -17,7 +17,7 @@ use Symfony\Component\Console\Input\InputOption;
  * Without running this task, the first search in the CMS will build the indexes.
  *
  * Note that this goes through all locales that have documentation and builds their indexes
- * which may result in mmore indexes than your content authors will actually use.
+ * which may result in more indexes than your content authors will actually use.
  */
 class IndexDocumentationTask extends BuildTask
 {
@@ -69,7 +69,7 @@ class IndexDocumentationTask extends BuildTask
         return <<<'EOD'
         Without running this task, the first search in the CMS will build the indexes.
         Note that this goes through all locales that have documentation and builds their indexes,
-        which may result in mmore indexes than your content authors will actually use.
+        which may result in more indexes than your content authors will actually use.
         EOD;
     }
 }

@@ -404,7 +404,7 @@ class UserDocsAdmin extends LeftAndMain
         if ($this->treeIsFiltered()) {
             $crumbs->add(
                 ArrayData::create([
-                    'Title' => _t(__CLASS__ . '.SearchResults', 'Search results'),
+                    'Title' => _t(__CLASS__ . '.BreadcrumbSearchResults', 'Search results'),
                     'Link' => false,
                 ])
             );

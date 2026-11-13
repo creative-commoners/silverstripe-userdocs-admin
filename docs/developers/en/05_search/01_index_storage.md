@@ -1,15 +1,32 @@
 ---
 title: Index storage
-summary: Store the search index in Redis or MySQL
+summary: Store the search index in SQLite, Redis, or MySQL
 ---
 
 # Index storage
 
-By default, the search index is stored in SQLite files in your temporary folder where Silverstripe CMS cache files are stored.
+By default, the search index is stored by the [`CacheEngine`](api:SilverStripe\UserDocs\Search\CacheEngine) engine in the `Psr\SimpleCache\CacheInterface.userdocssearchindex` cache. With the default cache configuration, the index is stored in files in your temporary folder where Silverstripe CMS cache files are stored. This engine needs no PHP extension or database.
 
-You can store the index in Redis or MySQL instead. Set the TNTSearch engine and the connection details in the injector configuration. You can give the connection details as separate configuration values, or as a single DSN. Use environment variables for the connection details, so that credentials are not stored in your codebase.
+> [!NOTE]
+> `CacheEngine` keeps the whole index in memory while it builds the index, so it can need more memory than the other engines. If building the index for a large set of documentation goes over your PHP memory limit, use one of the other engines.
+
+You can store the index in SQLite, Redis, or MySQL instead. Set the TNTSearch engine in the injector configuration. For Redis and MySQL, also set the connection details. You can give the connection details as separate configuration values, or as a single DSN. Use environment variables for the connection details, so that credentials are not stored in your codebase.
 
 A DSN can only be used with the engine it is for. If you set `redis_dsn` or `mysql_dsn` with a different engine, an exception is thrown.
+
+## SQLite
+
+To use SQLite, make sure the `pdo_sqlite` PHP extension is installed and set the engine to `SqliteEngine`.
+
+```yml
+SilverStripe\Core\Injector\Injector:
+  TeamTNT\TNTSearch\TNTSearch.userdocs:
+    constructor:
+      config:
+        engine: 'TeamTNT\TNTSearch\Engines\SqliteEngine'
+```
+
+The index files are stored in the `userdocs-admin/indexes/` directory inside your temporary folder. To store them somewhere else, set the `storage` configuration value. A relative path is relative to your temporary folder.
 
 ## Redis
 

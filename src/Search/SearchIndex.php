@@ -29,6 +29,7 @@ use SilverStripe\Core\Flushable;
 use SilverStripe\Core\Injector\Injectable;
 use SilverStripe\Core\Injector\Injector;
 use SilverStripe\UserDocs\Admin\UserDocsManifest;
+use TeamTNT\TNTSearch\Engines\EngineInterface;
 use TeamTNT\TNTSearch\Engines\MysqlEngine;
 use TeamTNT\TNTSearch\Engines\RedisEngine;
 use TeamTNT\TNTSearch\Engines\SqliteEngine;
@@ -807,22 +808,44 @@ class SearchIndex implements Flushable
         $indexer->setStopWords($stopWords);
         // Insert all rows in one transaction where possible.
         // Otherwise each row is committed separately, which is much slower.
-        $pdo = $tnt->engine instanceof SqliteEngine ? $tnt->engine->index : null;
-        $pdo?->beginTransaction();
+        $engine = $tnt->engine;
+        $useTransaction = method_exists($engine, 'indexBeginTransaction')
+            && method_exists($engine, 'indexEndTransaction');
+        if ($useTransaction) {
+            $engine->indexBeginTransaction();
+        }
         try {
             foreach ($rows as $row) {
                 $indexer->insert($row);
             }
-            $pdo?->commit();
+            if ($useTransaction) {
+                $engine->indexEndTransaction();
+            }
         } catch (Throwable $exception) {
-            if ($pdo?->inTransaction()) {
-                $pdo->rollBack();
+            if ($useTransaction) {
+                $this->rollBackTransaction($engine);
             }
             throw $exception;
         }
         // Stop words are actually set on the engine, despite the call being in the indexer.
         // This means the stop words could persist across locales if not reset.
         $indexer->setStopWords([]);
+    }
+
+    /**
+     * Roll back the open transaction of the engine, so that the partial index isn't saved.
+     */
+    private function rollBackTransaction(EngineInterface $engine): void
+    {
+        if (method_exists($engine, 'indexRollBackTransaction')) {
+            $engine->indexRollBackTransaction();
+            return;
+        }
+        // SqliteEngine has no method to roll back a transaction, so use its PDO connection
+        $pdo = $engine->index ?? null;
+        if ($pdo instanceof PDO && $pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
     }
 
     /**

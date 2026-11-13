@@ -7,6 +7,7 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use Predis\Client as PredisClient;
 use SilverStripe\Core\Path;
 use SilverStripe\Dev\SapphireTest;
+use SilverStripe\UserDocs\Search\CacheEngine;
 use SilverStripe\UserDocs\Search\TntSearchFactory;
 use TeamTNT\TNTSearch\Engines\MysqlEngine;
 use TeamTNT\TNTSearch\Engines\RedisEngine;
@@ -209,7 +210,6 @@ class TntSearchFactoryTest extends SapphireTest
     {
         return [
             'empty string' => ['dsn' => ''],
-            'not a string' => ['dsn' => ['mysql://localhost/docs']],
             'malformed' => ['dsn' => 'mysql://:0'],
             'wrong scheme' => ['dsn' => 'pgsql://localhost/docs'],
             'no scheme' => ['dsn' => 'localhost/docs'],
@@ -263,5 +263,89 @@ class TntSearchFactoryTest extends SapphireTest
         $this->expectException(InvalidArgumentException::class);
         $this->expectExceptionMessageMatches('/cannot be used with the .+ engine/');
         $this->createTntSearch($config);
+    }
+
+    public static function provideCreateEngine(): array
+    {
+        return [
+            'no config' => [
+                'params' => [],
+                'expected' => CacheEngine::class,
+            ],
+            'no engine' => [
+                'params' => ['config' => []],
+                'expected' => CacheEngine::class,
+            ],
+            'empty engine' => [
+                'params' => ['config' => ['engine' => '']],
+                'expected' => CacheEngine::class,
+            ],
+            'configured engine' => [
+                'params' => ['config' => ['engine' => SqliteEngine::class]],
+                'expected' => SqliteEngine::class,
+            ],
+        ];
+    }
+
+    #[DataProvider('provideCreateEngine')]
+    public function testCreateEngine(array $params, string $expected): void
+    {
+        $tnt = (new TntSearchFactory())->create(TNTSearch::class, $params);
+
+        $this->assertSame($expected, get_class($tnt->engine));
+    }
+
+    public static function provideCreateDriver(): array
+    {
+        return [
+            'default driver' => [
+                'config' => [],
+                'expected' => 'filesystem',
+            ],
+            'configured driver' => [
+                'config' => ['driver' => 'mysql'],
+                'expected' => 'mysql',
+            ],
+        ];
+    }
+
+    #[DataProvider('provideCreateDriver')]
+    public function testCreateDriver(array $config, string $expected): void
+    {
+        $config['engine'] = CacheEngine::class;
+        $tnt = (new TntSearchFactory())->create(TNTSearch::class, ['config' => $config]);
+
+        $this->assertSame($expected, $tnt->config['driver']);
+    }
+
+    public static function provideCreateStorage(): array
+    {
+        $defaultStorage = Path::join(TEMP_PATH, 'userdocs-admin', 'indexes') . '/';
+        return [
+            'sqlite engine' => [
+                'config' => ['engine' => SqliteEngine::class],
+                'expected' => $defaultStorage,
+            ],
+            'mysql engine' => [
+                'config' => ['engine' => MysqlEngine::class],
+                'expected' => $defaultStorage,
+            ],
+            'configured relative storage' => [
+                'config' => ['engine' => SqliteEngine::class, 'storage' => 'custom-indexes'],
+                'expected' => Path::join(TEMP_PATH, 'custom-indexes') . '/',
+            ],
+            'cache engine has no default' => [
+                'config' => ['engine' => CacheEngine::class],
+                'expected' => null,
+            ],
+        ];
+    }
+
+    #[DataProvider('provideCreateStorage')]
+    public function testCreateStorage(array $config, ?string $expected): void
+    {
+        $tnt = (new TntSearchFactory())->create(TNTSearch::class, ['config' => $config]);
+
+        $this->assertSame($expected, $tnt->config['storage'] ?? null);
     }
 }
