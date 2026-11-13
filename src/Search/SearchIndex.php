@@ -814,6 +814,9 @@ class SearchIndex implements Flushable
                 $indexer->insert($row);
             }
             $pdo?->commit();
+            if ($tnt->engine instanceof CacheEngine) {
+                $tnt->engine->save();
+            }
         } catch (Throwable $exception) {
             if ($pdo?->inTransaction()) {
                 $pdo->rollBack();

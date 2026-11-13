@@ -13,6 +13,7 @@ use SilverStripe\Dev\SapphireTest;
 use SilverStripe\i18n\i18n;
 use SilverStripe\UserDocs\Admin\UserDocsManifest;
 use SilverStripe\UserDocs\Search\SearchForm;
+use SilverStripe\UserDocs\Search\CacheEngine;
 use SilverStripe\UserDocs\Search\SearchIndex;
 use SilverStripe\UserDocs\Search\TntSearchFactory;
 use SilverStripe\UserDocs\Tests\Search\SearchIndexTest\StubDependenciesSearchIndex;
@@ -49,9 +50,10 @@ class SearchIndexTest extends SapphireTest
             new Psr16Cache(new ArrayAdapter()),
             CacheInterface::class . '.userdocssearch'
         );
+        Injector::inst()->registerService(new Psr16Cache(new ArrayAdapter()), CacheEngine::CACHE_SERVICE);
         Injector::inst()->registerService(
             (new TntSearchFactory())->create(TNTSearch::class, [
-                'config' => ['driver' => 'filesystem', 'storage' => $this->storagePath],
+                'config' => ['engine' => CacheEngine::class],
             ]),
             TNTSearch::class . '.userdocs'
         );
@@ -224,10 +226,10 @@ class SearchIndexTest extends SapphireTest
     {
         SearchIndex::config()->set('zone_weights', ['title' => 5, 'h1' => null]);
         SearchIndex::create()->init();
-
-        $this->assertFileExists(Path::join($this->storagePath, 'en.index'));
-        $this->assertFileExists(Path::join($this->storagePath, 'en.title.index'));
-        $this->assertFileDoesNotExist(Path::join($this->storagePath, 'en.h1.index'));
+        $cache = Injector::inst()->get(CacheEngine::CACHE_SERVICE);
+        $this->assertTrue($cache->has('index_' . md5('en.index')));
+        $this->assertTrue($cache->has('index_' . md5('en.title.index')));
+        $this->assertFalse($cache->has('index_' . md5('en.h1.index')));
     }
 
     public function testSearchIgnoresUnindexedZones(): void
@@ -290,12 +292,14 @@ class SearchIndexTest extends SapphireTest
         i18n::set_locale($locale);
         SearchIndex::create()->init();
         // Simulate another server that shares the index map cache but has its own index storage
-        (new Filesystem())->remove($this->storagePath);
+        Injector::inst()->get(CacheEngine::CACHE_SERVICE)->clear();
+        Injector::inst()->registerService(
+            (new TntSearchFactory())->create(TNTSearch::class, ['config' => ['engine' => CacheEngine::class]]),
+            TNTSearch::class . '.userdocs'
+        );
         $index = SearchIndex::create();
         $this->assertFalse($index->isBuilt());
-
         $index->init();
-
         $this->assertTrue($index->isBuilt());
         $results = $index->search([SearchForm::DEFAULT_SEARCH_FIELD => 'template syntax']);
         $this->assertEqualsCanonicalizing(['loops', 'template_syntax'], array_column($results, 'slug'));
