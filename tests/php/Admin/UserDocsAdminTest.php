@@ -11,6 +11,7 @@ use SilverStripe\Dev\FunctionalTest;
 use SilverStripe\Security\Security;
 use SilverStripe\UserDocs\Admin\UserDocsAdmin;
 use SilverStripe\UserDocs\Admin\UserDocsManifest;
+use SilverStripe\UserDocs\Search\CacheEngine;
 use SilverStripe\UserDocs\Search\SearchIndex;
 use SilverStripe\UserDocs\Search\TntSearchFactory;
 use SilverStripe\UserDocs\Tests\Admin\UserDocsAdminTest\TestUserDocsManifest;
@@ -40,9 +41,10 @@ class UserDocsAdminTest extends FunctionalTest
             new Psr16Cache(new ArrayAdapter()),
             CacheInterface::class . '.userdocssearch'
         );
+        Injector::inst()->registerService(new Psr16Cache(new ArrayAdapter()), CacheEngine::CACHE_SERVICE);
         Injector::inst()->registerService(
             (new TntSearchFactory())->create(TNTSearch::class, [
-                'config' => ['driver' => 'filesystem', 'storage' => $this->searchStoragePath],
+                'config' => ['engine' => CacheEngine::class],
             ]),
             TNTSearch::class . '.userdocs'
         );
